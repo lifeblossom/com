@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Front Desk Dashboard — Life Blossom Care and Cure Hospital</title>
+  <meta name="robots" content="noindex, nofollow"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://yealxvgednecmwnehfrs.supabase.co wss://yealxvgednecmwnehfrs.supabase.co; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"/>
+  <link rel="icon" type="image/png" href="../images/logo.png"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap"/>
+  <link rel="stylesheet" href="../css/styles.css"/>
+  <link rel="stylesheet" href="../css/dashboard.css"/>
+  <link rel="stylesheet" href="../css/components.css"/>
+</head>
+<body>
+  <div class="dashboard-page">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
+      <a class="sidebar-brand" href="#">
+        <img src="../images/logo.png" alt="Life Blossom Logo" class="sidebar-brand-logo" width="40" height="40"/>
+        <div class="sidebar-brand-text">
+          <div class="sidebar-brand-name">Life Blossom<br/>Care &amp; Cure</div>
+          <div class="sidebar-brand-sub">EMR System</div>
+        </div>
+      </a>
+      <div class="sidebar-user">
+        <div class="sidebar-user-avatar" id="sidebar-avatar">??</div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name" id="sidebar-name">Loading...</div>
+          <div class="sidebar-user-role" id="sidebar-role"></div>
+        </div>
+      </div>
+      <nav class="sidebar-nav" aria-label="Primary navigation">
+        <button class="nav-item active" id="nav-overview" data-view="overview" aria-current="page">
+          <span class="nav-item-icon" aria-hidden="true">📊</span>
+          <span class="nav-item-label">Overview</span>
+        </button>
+        <button class="nav-item" id="nav-register" data-view="register">
+          <span class="nav-item-icon" aria-hidden="true">👥</span>
+          <span class="nav-item-label">Patient Registration</span>
+        </button>
+        <button class="nav-item" id="nav-search" data-view="search">
+          <span class="nav-item-icon" aria-hidden="true">🔍</span>
+          <span class="nav-item-label">Search Patients</span>
+        </button>
+        <button class="nav-item" id="nav-transfers" data-view="transfers">
+          <span class="nav-item-icon" aria-hidden="true">📁</span>
+          <span class="nav-item-label">File Transfers</span>
+          <span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span>
+        </button>
+        <button class="nav-item" id="nav-encounters" data-view="encounters">
+          <span class="nav-item-icon" aria-hidden="true">📋</span>
+          <span class="nav-item-label">Encounters</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="nav-item" id="sign-out-btn" aria-label="Sign out">
+          <span class="nav-item-icon" aria-hidden="true">🚪</span>
+          <span class="nav-item-label">Sign Out</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Mobile overlay -->
+    <div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
+    <!-- Mobile toggle -->
+    <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Open menu" aria-expanded="false">☰</button>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 class="topbar-title" id="page-title">Overview</h1>
+        </div>
+        <div class="topbar-right">
+          <button class="notif-btn" id="notif-btn" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+            🔔
+            <span class="notif-count" id="notif-count" style="display:none" aria-label="unread notifications">0</span>
+          </button>
+          <div class="profile-menu" id="profile-menu">
+            <button class="profile-btn" id="profile-btn" aria-haspopup="true" aria-expanded="false">
+              <div class="profile-btn-avatar" id="topbar-avatar" aria-hidden="true">??</div>
+              <span class="profile-btn-name" id="topbar-name">Loading...</span>
+              <span class="profile-btn-arrow" aria-hidden="true">▾</span>
+            </button>
+            <div class="profile-dropdown" role="menu">
+              <div class="profile-dropdown-header">
+                <div class="profile-dropdown-name" id="dropdown-name"></div>
+                <div class="profile-dropdown-role" id="dropdown-role"></div>
+              </div>
+              <button class="profile-dropdown-item danger" id="dropdown-signout" role="menuitem">🚪 Sign Out</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Notification panel -->
+      <div class="notif-panel" id="notif-panel" role="complementary" aria-label="Notifications" aria-hidden="true">
+        <div class="notif-panel-header">
+          <h3>Notifications</h3>
+          <button class="btn btn-ghost btn-sm" id="notif-close" aria-label="Close notifications">✕</button>
+        </div>
+        <div class="notif-panel-body" id="notif-list" aria-live="polite"></div>
+      </div>
+
+      <div class="page-content">
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- VIEW: OVERVIEW                                          -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-overview" class="view-section" aria-labelledby="overview-heading">
+          <div class="section-header">
+            <h2 id="overview-heading" class="section-title">Dashboard Overview</h2>
+            <button class="btn btn-primary btn-sm" id="refresh-overview-btn" aria-label="Refresh overview">
+              <span aria-hidden="true">🔄</span> Refresh
+            </button>
+          </div>
+
+          <!-- Stats grid -->
+          <div class="stats-grid" role="list" aria-label="Summary statistics">
+            <div class="stat-card" role="listitem">
+              <div class="stat-card-icon" aria-hidden="true">📝</div>
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-registrations">—</div>
+                <div class="stat-card-label">Today's Registrations</div>
+              </div>
+            </div>
+            <div class="stat-card" role="listitem">
+              <div class="stat-card-icon" aria-hidden="true">🏥</div>
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-encounters">—</div>
+                <div class="stat-card-label">Active Encounters</div>
+              </div>
+            </div>
+            <div class="stat-card" role="listitem">
+              <div class="stat-card-icon" aria-hidden="true">📥</div>
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-transfers">—</div>
+                <div class="stat-card-label">Pending Transfers</div>
+              </div>
+            </div>
+            <div class="stat-card" role="listitem">
+              <div class="stat-card-icon" aria-hidden="true">👥</div>
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-total-patients">—</div>
+                <div class="stat-card-label">Total Patients</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="section-card" style="margin-top:1.5rem;">
+            <div class="section-card-header">
+              <h3 class="section-card-title">Quick Actions</h3>
+            </div>
+            <div class="quick-actions-grid">
+              <button class="quick-action-btn" id="qa-register" aria-label="Register new patient">
+                <span class="quick-action-icon" aria-hidden="true">➕</span>
+                <span class="quick-action-label">Register New Patient</span>
+              </button>
+              <button class="quick-action-btn" id="qa-search" aria-label="Search patient records">
+                <span class="quick-action-icon" aria-hidden="true">🔍</span>
+                <span class="quick-action-label">Search Patient</span>
+              </button>
+              <button class="quick-action-btn" id="qa-inbox" aria-label="Open inbox">
+                <span class="quick-action-icon" aria-hidden="true">📥</span>
+                <span class="quick-action-label">My Inbox</span>
+              </button>
+              <button class="quick-action-btn" id="qa-encounter" aria-label="Open new encounter">
+                <span class="quick-action-icon" aria-hidden="true">📋</span>
+                <span class="quick-action-label">Open Encounter</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Recent Registrations -->
+          <div class="section-card" style="margin-top:1.5rem;">
+            <div class="section-card-header">
+              <h3 class="section-card-title">Recent Registrations</h3>
+              <button class="btn btn-ghost btn-sm" id="view-all-registrations-btn">View All →</button>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table" aria-label="Recent patient registrations">
+                <thead>
+                  <tr>
+                    <th scope="col">Hospital No.</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Age</th>
+                    <th scope="col">Sex</th>
+                    <th scope="col">Registered</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="recent-registrations-tbody">
+                  <tr><td colspan="6" class="table-loading-cell"><div class="spinner"></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- VIEW: PATIENT REGISTRATION                              -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-register" class="view-section" aria-labelledby="register-heading" style="display:none">
+          <div class="section-header">
+            <h2 id="register-heading" class="section-title">Register New Patient</h2>
+          </div>
+
+          <!-- Duplicate Warning Banner -->
+          <div id="duplicate-warning" class="alert alert-warning" role="alert" style="display:none">
+            <strong>⚠ Possible duplicate detected.</strong>
+            <span id="duplicate-warning-text"></span>
+            <button class="btn btn-sm btn-ghost" id="ignore-duplicate-btn">Proceed Anyway</button>
+          </div>
+
+          <!-- Success Card -->
+          <div id="registration-success" class="success-card" role="status" aria-live="polite" style="display:none">
+            <div class="success-card-icon" aria-hidden="true">✅</div>
+            <div class="success-card-body">
+              <h3>Patient Registered Successfully!</h3>
+              <p>Hospital Number: <strong id="new-hospital-number" class="hospital-num"></strong></p>
+              <p id="success-patient-name"></p>
+              <div class="success-card-actions">
+                <button class="btn btn-primary" id="open-encounter-after-reg-btn">📋 Open Encounter for this Patient</button>
+                <button class="btn btn-ghost" id="register-another-btn">Register Another Patient</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Registration Form -->
+          <form id="registration-form" novalidate aria-label="Patient registration form">
+            <!-- Personal Information -->
+            <fieldset class="form-section-card">
+              <legend class="form-section-legend">Personal Information</legend>
+              <div class="form-grid form-grid-3">
+                <div class="form-group">
+                  <label class="form-label" for="reg-first-name">First Name <span class="required" aria-label="required">*</span></label>
+                  <input class="form-input" type="text" id="reg-first-name" name="first_name" placeholder="e.g. Amaka" autocomplete="given-name" required/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="reg-middle-name">Middle Name</label>
+                  <input class="form-input" type="text" id="reg-middle-name" name="middle_name" placeholder="e.g. Chisom" autocomplete="additional-name"/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="reg-last-name">Last Name <span class="required" aria-label="required">*</span></label>
+                  <input class="form-input" type="text" id="reg-last-name" name="last_name" placeholder="e.g. Okonkwo" autocomplete="family-name" required/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="reg-dob">Date of Birth <span class="required" aria-label="required">*</span></label>
+                  <input class="form-input" type="date" id="reg-dob" name="date_of_birth" max="" required/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="reg-sex">Sex <span class="required" aria-label="required">*</span></label>
+                  <select class="form-select" id="reg-sex" name="sex" required>
+                    <option value="">Select sex…</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+            </fieldset>
+
+            <!-- Contact Information -->
+            <fieldset class="form-section-card">
+              <legend class="form-section-legend">Contact Information</legend>
+              <div class="form-grid form-grid-3">
+                <div class="form-group">
+                  <label class="form-label" for="reg-phone">Phone Number <span class="required" aria-label="required">*</span></label>
+                  <input class="form-input" type="tel" id="reg-phone" name="phone" placeholder="e.g. 08012345678" autocomplete="tel" required/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="reg-alt-phone">Alternate Phone</label>
+                  <input class="form-input" type="tel" id="reg-alt-phone" name="alt_phone" placeholder="e.g. 07011223344" autocomplete="tel"/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="reg-email">Email Address</label>
+                  <input class="form-input" type="email" id="reg-email" name="email" placeholder="e.g. patient@email.com" autocomplete="email"/>
+                </div>
+                <div class="form-group form-group-full">
+                  <label class="form-label" for="reg-address">Address</label>
+                  <textarea class="form-input form-textarea" id="reg-address" name="address" rows="2" placeholder="Street address, city, state"></textarea>
+                </div>
+              </div>
+            </fieldset>
+
+            <!-- Emergency Contact -->
+            <fieldset class="form-section-card">
+              <legend class="form-section-legend">Emergency Contact</legend>
+              <div class="form-grid form-grid-3">
+                <div class="form-group">
+                  <label class="form-label" for="reg-emergency-name">Emergency Contact Name</label>
+                  <input class="form-input" type="text" id="reg-emergency-name" name="emergency_contact_name" placeholder="Full name"/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="reg-emergency-phone">Emergency Contact Phone</label>
+                  <input class="form-input" type="tel" id="reg-emergency-phone" name="emergency_contact_phone" placeholder="e.g. 08099887766"/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="reg-relationship">Relationship</label>
+                  <input class="form-input" type="text" id="reg-relationship" name="emergency_contact_relationship" placeholder="e.g. Spouse, Parent"/>
+                </div>
+              </div>
+            </fieldset>
+
+            <!-- Next of Kin & Notes -->
+            <fieldset class="form-section-card">
+              <legend class="form-section-legend">Next of Kin &amp; Admin Notes</legend>
+              <div class="form-grid form-grid-2">
+                <div class="form-group">
+                  <label class="form-label" for="reg-nok">Next of Kin</label>
+                  <input class="form-input" type="text" id="reg-nok" name="next_of_kin" placeholder="Full name"/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="reg-notes">Admin Notes</label>
+                  <textarea class="form-input form-textarea" id="reg-notes" name="admin_notes" rows="2" placeholder="Any relevant administrative notes…"></textarea>
+                </div>
+              </div>
+            </fieldset>
+
+            <div class="form-actions">
+              <button type="button" class="btn btn-ghost" id="clear-reg-form-btn">Clear Form</button>
+              <button type="submit" class="btn btn-primary" id="submit-reg-btn">
+                <span class="btn-text">Register Patient</span>
+                <span class="btn-loading" style="display:none">Registering…</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- VIEW: SEARCH PATIENTS                                   -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-search" class="view-section" aria-labelledby="search-heading" style="display:none">
+          <div class="section-header">
+            <h2 id="search-heading" class="section-title">Search Patients</h2>
+          </div>
+          <div class="search-bar-wrap">
+            <label for="patient-search-input" class="sr-only">Search by name, hospital number or phone</label>
+            <input
+              class="form-input search-input"
+              type="search"
+              id="patient-search-input"
+              placeholder="Search by name, hospital number or phone…"
+              autocomplete="off"
+              aria-label="Search patients"
+            />
+            <span class="search-icon" aria-hidden="true">🔍</span>
+          </div>
+          <div id="search-results-container" aria-live="polite" aria-label="Search results">
+            <div class="empty-state">
+              <span class="empty-icon" aria-hidden="true">🔍</span>
+              <p>Type at least 2 characters to search for patients.</p>
+            </div>
+          </div>
+          <div id="search-pagination" role="navigation" aria-label="Search results pages"></div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- VIEW: FILE TRANSFERS / INBOX                            -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-transfers" class="view-section" aria-labelledby="transfers-heading" style="display:none">
+          <div class="section-header">
+            <h2 id="transfers-heading" class="section-title">File Transfers</h2>
+            <button class="btn btn-ghost btn-sm" id="refresh-transfers-btn" aria-label="Refresh transfers">🔄 Refresh</button>
+          </div>
+
+          <!-- Tabs: Inbox / Sent -->
+          <div class="tab-bar" role="tablist" aria-label="Transfer views">
+            <button class="tab-btn active" id="tab-inbox" role="tab" aria-selected="true" aria-controls="transfers-inbox-panel">
+              📥 Inbox <span class="tab-badge" id="inbox-tab-badge" style="display:none">0</span>
+            </button>
+            <button class="tab-btn" id="tab-sent" role="tab" aria-selected="false" aria-controls="transfers-sent-panel">
+              📤 Sent
+            </button>
+          </div>
+
+          <!-- Filter chips (inbox) -->
+          <div id="transfers-inbox-panel" role="tabpanel" aria-labelledby="tab-inbox">
+            <div class="filter-chips" role="group" aria-label="Filter inbox by status">
+              <button class="chip active" data-filter="active" aria-pressed="true">Active</button>
+              <button class="chip" data-filter="all" aria-pressed="false">All</button>
+              <button class="chip" data-filter="completed" aria-pressed="false">Completed</button>
+              <button class="chip" data-filter="returned" aria-pressed="false">Returned</button>
+            </div>
+            <div id="inbox-list" aria-live="polite" aria-label="Inbox transfers">
+              <div class="loading-state"><div class="spinner"></div><p>Loading inbox…</p></div>
+            </div>
+          </div>
+
+          <!-- Sent panel -->
+          <div id="transfers-sent-panel" role="tabpanel" aria-labelledby="tab-sent" style="display:none">
+            <div id="sent-list" aria-live="polite" aria-label="Sent transfers">
+              <div class="loading-state"><div class="spinner"></div><p>Loading sent files…</p></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- VIEW: ENCOUNTERS                                        -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-encounters" class="view-section" aria-labelledby="encounters-heading" style="display:none">
+          <div class="section-header">
+            <h2 id="encounters-heading" class="section-title">Encounters</h2>
+            <button class="btn btn-primary btn-sm" id="new-encounter-btn" aria-label="Open a new encounter">
+              ➕ New Encounter
+            </button>
+          </div>
+          <div id="encounters-list" aria-live="polite" aria-label="Encounter list">
+            <div class="loading-state"><div class="spinner"></div><p>Loading encounters…</p></div>
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- PATIENT CHART SIDE PANEL                                -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <div id="patient-chart-panel" class="side-panel" role="dialog" aria-modal="true" aria-labelledby="chart-panel-title" aria-hidden="true">
+          <div class="side-panel-header">
+            <h2 id="chart-panel-title" class="side-panel-title">Patient Chart</h2>
+            <button class="btn btn-ghost btn-icon" id="close-chart-panel" aria-label="Close patient chart">✕</button>
+          </div>
+          <div class="side-panel-body" id="patient-chart-body">
+            <div class="loading-state"><div class="spinner"></div><p>Loading patient…</p></div>
+          </div>
+        </div>
+        <div class="side-panel-overlay" id="chart-panel-overlay" aria-hidden="true"></div>
+
+      </div><!-- /.page-content -->
+    </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- MODAL: New Encounter (search + open)                           -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="encounter-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="encounter-modal-title" aria-hidden="true">
+    <div class="modal modal-md">
+      <div class="modal-header">
+        <h3 id="encounter-modal-title">Open New Encounter</h3>
+        <button class="btn btn-ghost btn-icon" id="close-encounter-modal" aria-label="Close dialog">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">Search for the patient, then open an encounter for them.</p>
+        <div class="form-group">
+          <label class="form-label" for="encounter-patient-search">Patient Search</label>
+          <input class="form-input" type="search" id="encounter-patient-search" placeholder="Name, hospital number or phone…" autocomplete="off"/>
+        </div>
+        <div id="encounter-patient-results" aria-live="polite" style="min-height:60px"></div>
+        <div id="encounter-selected-patient" style="display:none">
+          <div class="selected-patient-card">
+            <strong>Selected:</strong> <span id="encounter-selected-name"></span>
+            (<span id="encounter-selected-number" class="hospital-num"></span>)
+          </div>
+          <div class="form-group" style="margin-top:1rem">
+            <label class="form-label" for="encounter-reason">Chief Complaint / Reason for Visit</label>
+            <textarea class="form-input form-textarea" id="encounter-reason" rows="3" placeholder="Briefly describe the patient's reason for visit…"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancel-encounter-modal">Cancel</button>
+        <button class="btn btn-primary" id="confirm-open-encounter-btn" disabled>📋 Open Encounter</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="../js/frontdesk.js"></script>
+</body>
+</html>

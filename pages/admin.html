@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin Dashboard — Life Blossom Care and Cure Hospital</title>
+  <meta name="robots" content="noindex, nofollow"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://yealxvgednecmwnehfrs.supabase.co wss://yealxvgednecmwnehfrs.supabase.co; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"/>
+  <link rel="icon" type="image/png" href="../images/logo.png"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap"/>
+  <link rel="stylesheet" href="../css/styles.css"/>
+  <link rel="stylesheet" href="../css/dashboard.css"/>
+  <link rel="stylesheet" href="../css/components.css"/>
+</head>
+<body>
+  <div class="dashboard-page">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
+      <a class="sidebar-brand" href="#">
+        <img src="../images/logo.png" alt="Life Blossom Logo" class="sidebar-brand-logo" width="40" height="40"/>
+        <div class="sidebar-brand-text">
+          <div class="sidebar-brand-name">Life Blossom<br/>Care &amp; Cure</div>
+          <div class="sidebar-brand-sub">EMR System</div>
+        </div>
+      </a>
+      <div class="sidebar-user">
+        <div class="sidebar-user-avatar" id="sidebar-avatar">??</div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name" id="sidebar-name">Loading...</div>
+          <div class="sidebar-user-role" id="sidebar-role"></div>
+        </div>
+      </div>
+      <nav class="sidebar-nav" aria-label="Primary navigation">
+        <button class="nav-item active" id="nav-overview" data-view="overview" aria-current="page">
+          <span class="nav-item-icon" aria-hidden="true">📊</span>
+          <span class="nav-item-label">Overview</span>
+        </button>
+        <button class="nav-item" id="nav-staff" data-view="staff">
+          <span class="nav-item-icon" aria-hidden="true">👨‍⚕️</span>
+          <span class="nav-item-label">Staff Management</span>
+        </button>
+        <button class="nav-item" id="nav-settings" data-view="settings">
+          <span class="nav-item-icon" aria-hidden="true">⚙️</span>
+          <span class="nav-item-label">System Settings</span>
+        </button>
+        <button class="nav-item" id="nav-audit" data-view="audit">
+          <span class="nav-item-icon" aria-hidden="true">📋</span>
+          <span class="nav-item-label">Audit Logs</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="nav-item" id="sign-out-btn" aria-label="Sign out">
+          <span class="nav-item-icon" aria-hidden="true">🚪</span>
+          <span class="nav-item-label">Sign Out</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Mobile overlay -->
+    <div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
+    <!-- Mobile toggle -->
+    <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Open menu" aria-expanded="false">☰</button>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 class="topbar-title" id="page-title">Overview</h1>
+        </div>
+        <div class="topbar-right">
+          <button class="notif-btn" id="notif-btn" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+            🔔
+            <span class="notif-count" id="notif-count" style="display:none" aria-label="unread notifications">0</span>
+          </button>
+          <div class="profile-menu" id="profile-menu">
+            <button class="profile-btn" id="profile-btn" aria-haspopup="true" aria-expanded="false">
+              <div class="profile-btn-avatar" id="topbar-avatar" aria-hidden="true">??</div>
+              <span class="profile-btn-name" id="topbar-name">Loading...</span>
+              <span class="profile-btn-arrow" aria-hidden="true">▾</span>
+            </button>
+            <div class="profile-dropdown" role="menu">
+              <div class="profile-dropdown-header">
+                <div class="profile-dropdown-name" id="dropdown-name"></div>
+                <div class="profile-dropdown-role" id="dropdown-role"></div>
+              </div>
+              <button class="profile-dropdown-item danger" id="dropdown-signout" role="menuitem">🚪 Sign Out</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Notification panel -->
+      <div class="notif-panel" id="notif-panel" role="complementary" aria-label="Notifications" aria-hidden="true">
+        <div class="notif-panel-header">
+          <h3>Notifications</h3>
+          <button class="btn btn-ghost btn-sm" id="notif-close" aria-label="Close notifications">✕</button>
+        </div>
+        <div class="notif-panel-body" id="notif-list" aria-live="polite"></div>
+      </div>
+
+      <div class="page-content">
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- VIEW: OVERVIEW                                          -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-overview" class="view-section" aria-labelledby="admin-overview-heading">
+          <div class="section-header">
+            <h2 id="admin-overview-heading" class="section-title">System Overview</h2>
+            <button class="btn btn-primary btn-sm" id="refresh-overview-btn" aria-label="Refresh overview">🔄 Refresh</button>
+          </div>
+
+          <!-- Stats grid -->
+          <div class="stats-grid stats-grid-5" role="list" aria-label="System statistics">
+            <div class="stat-card" role="listitem">
+              <div class="stat-card-icon" aria-hidden="true">👥</div>
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-active-staff">—</div>
+                <div class="stat-card-label">Active Staff</div>
+              </div>
+            </div>
+            <div class="stat-card" role="listitem">
+              <div class="stat-card-icon" aria-hidden="true">🏥</div>
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-total-patients">—</div>
+                <div class="stat-card-label">Total Patients</div>
+              </div>
+            </div>
+            <div class="stat-card" role="listitem">
+              <div class="stat-card-icon" aria-hidden="true">📁</div>
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-active-transfers">—</div>
+                <div class="stat-card-label">Active Transfers</div>
+              </div>
+            </div>
+            <div class="stat-card" role="listitem">
+              <div class="stat-card-icon" aria-hidden="true">📅</div>
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-today-activity">—</div>
+                <div class="stat-card-label">Today's Activity</div>
+              </div>
+            </div>
+            <div class="stat-card" role="listitem">
+              <div class="stat-card-icon" aria-hidden="true">🔒</div>
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-audit-today">—</div>
+                <div class="stat-card-label">Audit Events Today</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Role breakdown row -->
+          <div class="stats-grid stats-grid-5" style="margin-top:0.75rem" role="list" aria-label="Staff by role">
+            <div class="stat-card stat-card-sm role-stat-doctor" role="listitem">
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-role-doctor">—</div>
+                <div class="stat-card-label">Doctors</div>
+              </div>
+            </div>
+            <div class="stat-card stat-card-sm role-stat-nurse" role="listitem">
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-role-nurse">—</div>
+                <div class="stat-card-label">Nurses</div>
+              </div>
+            </div>
+            <div class="stat-card stat-card-sm role-stat-pharmacist" role="listitem">
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-role-pharmacist">—</div>
+                <div class="stat-card-label">Pharmacists</div>
+              </div>
+            </div>
+            <div class="stat-card stat-card-sm role-stat-lab" role="listitem">
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-role-lab">—</div>
+                <div class="stat-card-label">Lab Tech</div>
+              </div>
+            </div>
+            <div class="stat-card stat-card-sm role-stat-frontdesk" role="listitem">
+              <div class="stat-card-content">
+                <div class="stat-card-value" id="stat-role-frontdesk">—</div>
+                <div class="stat-card-label">Front Desk</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Account limits -->
+          <div class="section-card" style="margin-top:1.5rem">
+            <div class="section-card-header">
+              <h3 class="section-card-title">Account Limits</h3>
+              <button class="btn btn-ghost btn-sm" id="go-settings-btn">Manage Limits →</button>
+            </div>
+            <div id="account-limits-body" aria-live="polite">
+              <div class="loading-state"><div class="spinner"></div><p>Loading limits…</p></div>
+            </div>
+          </div>
+
+          <!-- Recent audit logs -->
+          <div class="section-card" style="margin-top:1.5rem">
+            <div class="section-card-header">
+              <h3 class="section-card-title">Recent Audit Log</h3>
+              <button class="btn btn-ghost btn-sm" id="view-all-audit-btn">View All →</button>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table" aria-label="Recent audit log entries">
+                <thead>
+                  <tr>
+                    <th scope="col">Time</th>
+                    <th scope="col">Actor</th>
+                    <th scope="col">Action</th>
+                    <th scope="col">Table</th>
+                    <th scope="col">Record ID</th>
+                  </tr>
+                </thead>
+                <tbody id="recent-audit-tbody">
+                  <tr><td colspan="5" class="table-loading-cell"><div class="spinner"></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- VIEW: STAFF MANAGEMENT                                  -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-staff" class="view-section" aria-labelledby="staff-heading" style="display:none">
+          <div class="section-header">
+            <h2 id="staff-heading" class="section-title">Staff Management</h2>
+            <button class="btn btn-primary" id="add-staff-btn" aria-label="Add new staff member">
+              ➕ Add New Staff
+            </button>
+          </div>
+
+          <!-- Filters -->
+          <div class="filters-bar" role="search" aria-label="Staff filters">
+            <div class="filter-group">
+              <label class="form-label" for="staff-role-filter">Role</label>
+              <select class="form-select form-select-sm" id="staff-role-filter" aria-label="Filter by role">
+                <option value="">All Roles</option>
+                <option value="doctor">Doctor</option>
+                <option value="nurse">Nurse</option>
+                <option value="pharmacist">Pharmacist</option>
+                <option value="front_desk">Front Desk</option>
+                <option value="lab_technician">Lab Technician</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label class="form-label" for="staff-status-filter">Status</label>
+              <select class="form-select form-select-sm" id="staff-status-filter" aria-label="Filter by status">
+                <option value="">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+                <option value="deactivated">Deactivated</option>
+              </select>
+            </div>
+            <div class="filter-group filter-search">
+              <label class="form-label" for="staff-search-input">Search</label>
+              <input class="form-input form-input-sm" type="search" id="staff-search-input" placeholder="Search by name, email, staff ID…" aria-label="Search staff"/>
+            </div>
+          </div>
+
+          <div id="staff-list-container" aria-live="polite" aria-label="Staff list">
+            <div class="loading-state"><div class="spinner"></div><p>Loading staff…</p></div>
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- VIEW: SYSTEM SETTINGS                                   -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-settings" class="view-section" aria-labelledby="settings-heading" style="display:none">
+          <div class="section-header">
+            <h2 id="settings-heading" class="section-title">System Settings</h2>
+          </div>
+
+          <div class="section-card">
+            <div class="section-card-header">
+              <h3 class="section-card-title">Role Account Limits</h3>
+            </div>
+            <p class="section-card-desc">Set the maximum number of active accounts allowed per role. Changes take effect immediately.</p>
+            <div id="settings-limits-body" aria-live="polite">
+              <div class="loading-state"><div class="spinner"></div><p>Loading settings…</p></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- VIEW: AUDIT LOGS                                        -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <section id="view-audit" class="view-section" aria-labelledby="audit-heading" style="display:none">
+          <div class="section-header">
+            <h2 id="audit-heading" class="section-title">Audit Logs</h2>
+            <button class="btn btn-ghost btn-sm" id="refresh-audit-btn" aria-label="Refresh audit logs">🔄 Refresh</button>
+          </div>
+
+          <!-- Audit filters -->
+          <div class="filters-bar" role="search" aria-label="Audit log filters">
+            <div class="filter-group">
+              <label class="form-label" for="audit-table-filter">Table</label>
+              <select class="form-select form-select-sm" id="audit-table-filter" aria-label="Filter by table">
+                <option value="">All Tables</option>
+                <option value="patients">patients</option>
+                <option value="patient_encounters">patient_encounters</option>
+                <option value="patient_file_transfers">patient_file_transfers</option>
+                <option value="profiles">profiles</option>
+                <option value="system_settings">system_settings</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label class="form-label" for="audit-date-from">From</label>
+              <input class="form-input form-input-sm" type="date" id="audit-date-from" aria-label="Filter from date"/>
+            </div>
+            <div class="filter-group">
+              <label class="form-label" for="audit-date-to">To</label>
+              <input class="form-input form-input-sm" type="date" id="audit-date-to" aria-label="Filter to date"/>
+            </div>
+            <div class="filter-group">
+              <button class="btn btn-primary btn-sm" id="apply-audit-filter-btn">Apply Filter</button>
+              <button class="btn btn-ghost btn-sm" id="clear-audit-filter-btn">Clear</button>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table" aria-label="Audit log">
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Actor</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">Table</th>
+                  <th scope="col">Record ID</th>
+                </tr>
+              </thead>
+              <tbody id="audit-tbody">
+                <tr><td colspan="5" class="table-loading-cell"><div class="spinner"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="audit-pagination" role="navigation" aria-label="Audit log pages"></div>
+        </section>
+
+      </div><!-- /.page-content -->
+    </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- MODAL: Add New Staff                                            -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="add-staff-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="add-staff-modal-title" aria-hidden="true">
+    <div class="modal modal-md">
+      <div class="modal-header">
+        <h3 id="add-staff-modal-title">Add New Staff Member</h3>
+        <button class="btn btn-ghost btn-icon" id="close-add-staff-modal" aria-label="Close dialog">✕</button>
+      </div>
+      <form id="add-staff-form" novalidate aria-label="Add staff form">
+        <div class="modal-body">
+          <div class="form-grid form-grid-2">
+            <div class="form-group form-group-full">
+              <label class="form-label" for="staff-full-name">Full Name <span class="required" aria-label="required">*</span></label>
+              <input class="form-input" type="text" id="staff-full-name" name="full_name" placeholder="e.g. Dr. Chukwuemeka Obi" required/>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="staff-email">Email Address <span class="required" aria-label="required">*</span></label>
+              <input class="form-input" type="email" id="staff-email" name="email" placeholder="staff@lifeblossom.ng" required/>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="staff-role">Role <span class="required" aria-label="required">*</span></label>
+              <select class="form-select" id="staff-role" name="role" required>
+                <option value="">Select role…</option>
+                <option value="doctor">Doctor</option>
+                <option value="nurse">Nurse</option>
+                <option value="pharmacist">Pharmacist</option>
+                <option value="front_desk">Front Desk</option>
+                <option value="lab_technician">Lab Technician</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="staff-id-input">Staff ID</label>
+              <input class="form-input" type="text" id="staff-id-input" name="staff_id" placeholder="e.g. LBC-DOC-001"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="staff-department">Department</label>
+              <input class="form-input" type="text" id="staff-department" name="department" placeholder="e.g. Cardiology"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="staff-phone">Phone</label>
+              <input class="form-input" type="tel" id="staff-phone" name="phone" placeholder="e.g. 08012345678"/>
+            </div>
+          </div>
+          <p class="form-note">An invitation link will be emailed so the staff member can set their password.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="cancel-add-staff">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="submit-add-staff-btn">
+            <span class="btn-text">Create Account</span>
+            <span class="btn-loading" style="display:none">Creating…</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- MODAL: Edit Staff                                               -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="edit-staff-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="edit-staff-modal-title" aria-hidden="true">
+    <div class="modal modal-md">
+      <div class="modal-header">
+        <h3 id="edit-staff-modal-title">Edit Staff Member</h3>
+        <button class="btn btn-ghost btn-icon" id="close-edit-staff-modal" aria-label="Close dialog">✕</button>
+      </div>
+      <form id="edit-staff-form" novalidate aria-label="Edit staff form">
+        <input type="hidden" id="edit-staff-user-id" name="user_id"/>
+        <div class="modal-body">
+          <div class="form-grid form-grid-2">
+            <div class="form-group form-group-full">
+              <label class="form-label" for="edit-staff-full-name">Full Name <span class="required" aria-label="required">*</span></label>
+              <input class="form-input" type="text" id="edit-staff-full-name" name="full_name" required/>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="edit-staff-department">Department</label>
+              <input class="form-input" type="text" id="edit-staff-department" name="department" placeholder="e.g. Cardiology"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="edit-staff-phone">Phone</label>
+              <input class="form-input" type="tel" id="edit-staff-phone" name="phone" placeholder="e.g. 08012345678"/>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="cancel-edit-staff">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="submit-edit-staff-btn">
+            <span class="btn-text">Save Changes</span>
+            <span class="btn-loading" style="display:none">Saving…</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="../js/admin.js"></script>
+</body>
+</html>

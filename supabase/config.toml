@@ -1,0 +1,13 @@
+project_id = "yealxvgednecmwnehfrs"
+
+[functions.admin-create-staff]
+verify_jwt = true
+
+[functions.admin-update-staff]
+verify_jwt = true
+
+[functions.admin-deactivate-staff]
+verify_jwt = true
+
+[functions.admin-reset-staff-password]
+verify_jwt = true

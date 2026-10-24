@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In — Life Blossom Care and Cure Hospital</title>
+  <meta name="description" content="Secure staff sign-in portal for Life Blossom Care and Cure Hospital Electronic Medical Records System." />
+  <meta name="robots" content="noindex, nofollow" />
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="./images/logo.png" />
+  <!-- Styles -->
+  <link rel="stylesheet" href="./css/styles.css" />
+  <link rel="stylesheet" href="./css/login.css" />
+  <!-- Content Security Policy -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' https://cdn.jsdelivr.net;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+    font-src https://fonts.gstatic.com;
+    connect-src https://yealxvgednecmwnehfrs.supabase.co wss://yealxvgednecmwnehfrs.supabase.co;
+    img-src 'self' data:;
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+  " />
+</head>
+<body>
+  <div class="login-page" role="main">
+
+    <!-- Left Hero Panel -->
+    <div class="login-hero" aria-hidden="true">
+      <div class="hero-logo">
+        <img src="./images/logo.png" alt="Life Blossom Care and Cure Hospital Logo" width="130" height="130" />
+        <div class="hero-hospital-name">
+          <h1>Life Blossom<br/>Care and Cure Hospital</h1>
+          <p>Electronic Medical Records System</p>
+        </div>
+      </div>
+      <div class="hero-features">
+        <div class="hero-feature">
+          <div class="hero-feature-icon pink">🔒</div>
+          <div>
+            <h4>Secure Access</h4>
+            <p>Role-based authentication with audit logging</p>
+          </div>
+        </div>
+        <div class="hero-feature">
+          <div class="hero-feature-icon teal">📋</div>
+          <div>
+            <h4>Patient Records</h4>
+            <p>Complete clinical history and encounter management</p>
+          </div>
+        </div>
+        <div class="hero-feature">
+          <div class="hero-feature-icon green">🔬</div>
+          <div>
+            <h4>Laboratory & Pharmacy</h4>
+            <p>Integrated workflows from request to dispensing</p>
+          </div>
+        </div>
+        <div class="hero-feature">
+          <div class="hero-feature-icon blue">📁</div>
+          <div>
+            <h4>File Routing</h4>
+            <p>Secure patient file transfer between departments</p>
+          </div>
+        </div>
+      </div>
+      <div class="hero-footer">
+        © 2024 Life Blossom Care and Cure Hospital · All rights reserved
+      </div>
+    </div>
+
+    <!-- Right Login Panel -->
+    <div class="login-panel">
+      <div class="login-panel-inner">
+
+        <!-- Mobile Logo (visible on small screens only) -->
+        <div class="login-mobile-logo" aria-hidden="true">
+          <img src="./images/logo.png" alt="Life Blossom Hospital Logo" width="80" height="80" />
+          <div class="mobile-hospital-name">Life Blossom<br/>Care and Cure Hospital</div>
+        </div>
+
+        <!-- ── SIGN IN FORM ── -->
+        <div id="main-form-section" class="login-main-form">
+
+          <div class="login-form-header">
+            <h2>Welcome back</h2>
+            <p>Sign in to your staff account to continue</p>
+          </div>
+
+          <!-- Error / Success Messages -->
+          <div id="login-error" class="login-error" role="alert" aria-live="polite">
+            <span>⚠</span>
+            <span id="login-error-text"></span>
+          </div>
+          <div id="login-success" class="login-success" role="status" aria-live="polite">
+            <span>✓</span>
+            <span id="login-success-text"></span>
+          </div>
+
+          <form id="login-form" class="login-form" novalidate autocomplete="on">
+            <!-- Email -->
+            <div class="form-group">
+              <label for="email" class="form-label">
+                Email Address <span class="required" aria-hidden="true">*</span>
+              </label>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                class="form-control"
+                placeholder="you@lifeblossom.hospital"
+                autocomplete="email"
+                required
+                aria-required="true"
+                aria-describedby="email-error"
+              />
+              <span id="email-error" class="field-error" role="alert"></span>
+            </div>
+
+            <!-- Password -->
+            <div class="form-group">
+              <label for="password" class="form-label">
+                Password <span class="required" aria-hidden="true">*</span>
+              </label>
+              <div class="input-group">
+                <input
+                  type="password"
+                  id="password"
+                  name="password"
+                  class="form-control"
+                  placeholder="Enter your password"
+                  autocomplete="current-password"
+                  required
+                  aria-required="true"
+                  aria-describedby="password-error"
+                />
+                <button
+                  type="button"
+                  class="input-addon"
+                  id="toggle-password"
+                  aria-label="Show password"
+                  title="Show / Hide password"
+                >
+                  👁
+                </button>
+              </div>
+              <span id="password-error" class="field-error" role="alert"></span>
+            </div>
+
+            <!-- Forgot Password Link -->
+            <div class="login-links">
+              <button
+                type="button"
+                class="login-forgot"
+                id="show-reset"
+                aria-label="Forgot password? Click to reset."
+              >
+                Forgot password?
+              </button>
+            </div>
+
+            <!-- Submit -->
+            <button type="submit" class="login-btn" id="login-btn">
+              <div class="btn-spinner" aria-hidden="true"></div>
+              <span class="btn-text">Sign In</span>
+            </button>
+          </form>
+
+          <div class="login-footer">
+            <strong>Life Blossom Care and Cure Hospital</strong><br/>
+            Authorised staff access only · Contact your administrator if you need an account
+          </div>
+        </div>
+
+        <!-- ── PASSWORD RESET FORM ── -->
+        <div id="reset-form-section" class="reset-form" aria-label="Password reset form">
+          <button
+            type="button"
+            class="back-to-login"
+            id="back-to-login"
+            aria-label="Back to sign in"
+          >
+            ← Back to Sign In
+          </button>
+
+          <div class="login-form-header">
+            <h2>Reset Password</h2>
+            <p>Enter your email address and we'll send you a reset link.</p>
+          </div>
+
+          <div id="reset-error" class="login-error" role="alert" aria-live="polite">
+            <span>⚠</span>
+            <span id="reset-error-text"></span>
+          </div>
+          <div id="reset-success" class="login-success" role="status" aria-live="polite">
+            <span>✓</span>
+            <span id="reset-success-text"></span>
+          </div>
+
+          <form id="reset-form" class="login-form" novalidate>
+            <div class="form-group">
+              <label for="reset-email" class="form-label">
+                Email Address <span class="required" aria-hidden="true">*</span>
+              </label>
+              <input
+                type="email"
+                id="reset-email"
+                name="email"
+                class="form-control"
+                placeholder="your.email@example.com"
+                autocomplete="email"
+                required
+                aria-required="true"
+              />
+            </div>
+            <button type="submit" class="login-btn" id="reset-btn">
+              <div class="btn-spinner" aria-hidden="true"></div>
+              <span class="btn-text">Send Reset Link</span>
+            </button>
+          </form>
+
+          <div class="login-footer" style="margin-top:24px;">
+            Check your inbox (and spam folder) for the reset email.<br/>
+            Links expire after 1 hour.
+          </div>
+        </div>
+
+        <!-- ── SET NEW PASSWORD FORM ── -->
+        <div id="password-form-section" class="reset-form" aria-label="Set a new password">
+          <div class="login-form-header">
+            <h2>Set a New Password</h2>
+            <p>Choose a new password for your staff account.</p>
+          </div>
+          <div id="password-update-error" class="login-error" role="alert" aria-live="polite">
+            <span>⚠</span>
+            <span id="password-update-error-text"></span>
+          </div>
+          <div id="password-update-success" class="login-success" role="status" aria-live="polite">
+            <span>✓</span>
+            <span id="password-update-success-text"></span>
+          </div>
+          <form id="password-form" class="login-form" novalidate>
+            <div class="form-group">
+              <label for="new-password" class="form-label">New Password <span class="required" aria-hidden="true">*</span></label>
+              <input type="password" id="new-password" class="form-control" autocomplete="new-password" minlength="8" required/>
+            </div>
+            <div class="form-group">
+              <label for="confirm-password" class="form-label">Confirm New Password <span class="required" aria-hidden="true">*</span></label>
+              <input type="password" id="confirm-password" class="form-control" autocomplete="new-password" minlength="8" required/>
+            </div>
+            <button type="submit" class="login-btn" id="password-update-btn">
+              <div class="btn-spinner" aria-hidden="true"></div>
+              <span class="btn-text">Update Password</span>
+            </button>
+          </form>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- /.login-page -->
+
+  <!-- Login Controller Script -->
+  <script type="module" src="./js/login.js"></script>
+</body>
+</html>

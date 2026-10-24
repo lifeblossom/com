@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pharmacy Dashboard — Life Blossom Care and Cure Hospital</title>
+  <meta name="robots" content="noindex, nofollow"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://yealxvgednecmwnehfrs.supabase.co wss://yealxvgednecmwnehfrs.supabase.co; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"/>
+  <link rel="icon" type="image/png" href="../images/logo.png"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap"/>
+  <link rel="stylesheet" href="../css/styles.css"/>
+  <link rel="stylesheet" href="../css/dashboard.css"/>
+  <link rel="stylesheet" href="../css/components.css"/>
+</head>
+<body>
+<div class="dashboard-page">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <a class="sidebar-brand" href="#">
+      <img src="../images/logo.png" alt="Life Blossom Logo" class="sidebar-brand-logo" width="40" height="40"/>
+      <div class="sidebar-brand-text">
+        <div class="sidebar-brand-name">Life Blossom<br/>Care &amp; Cure</div>
+        <div class="sidebar-brand-sub">EMR System</div>
+      </div>
+    </a>
+    <div class="sidebar-user">
+      <div class="sidebar-user-avatar" id="sidebar-avatar">??</div>
+      <div class="sidebar-user-info">
+        <div class="sidebar-user-name" id="sidebar-name">Loading...</div>
+        <div class="sidebar-user-role" id="sidebar-role"></div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-view="overview">
+        <span class="nav-item-icon">📊</span>
+        <span class="nav-item-label">Overview</span>
+      </button>
+      <button class="nav-item" data-view="inbox">
+        <span class="nav-item-icon">📥</span>
+        <span class="nav-item-label">Inbox</span>
+        <span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span>
+      </button>
+      <button class="nav-item" data-view="prescriptions">
+        <span class="nav-item-icon">💊</span>
+        <span class="nav-item-label">Prescriptions Queue</span>
+      </button>
+      <button class="nav-item" data-view="inventory">
+        <span class="nav-item-icon">📦</span>
+        <span class="nav-item-label">Medicine Inventory</span>
+      </button>
+      <button class="nav-item" data-view="dispense">
+        <span class="nav-item-icon">🏥</span>
+        <span class="nav-item-label">Dispense Medication</span>
+      </button>
+      <button class="nav-item" data-view="movements">
+        <span class="nav-item-icon">📊</span>
+        <span class="nav-item-label">Inventory Movements</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="nav-item" id="sign-out-btn">
+        <span class="nav-item-icon">🚪</span>
+        <span class="nav-item-label">Sign Out</span>
+      </button>
+    </div>
+  </aside>
+
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Open menu">☰</button>
+
+  <!-- Main -->
+  <main class="main-content">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="topbar-title" id="page-title">Pharmacy Dashboard</h1>
+      </div>
+      <div class="topbar-right">
+        <button class="notif-btn" id="notif-btn" aria-label="Notifications">
+          🔔<span class="notif-count" id="notif-count" style="display:none">0</span>
+        </button>
+        <div class="profile-menu" id="profile-menu">
+          <button class="profile-btn" id="profile-btn">
+            <div class="profile-btn-avatar" id="topbar-avatar">??</div>
+            <span class="profile-btn-name" id="topbar-name">Loading...</span>
+            <span class="profile-btn-arrow">▾</span>
+          </button>
+          <div class="profile-dropdown">
+            <div class="profile-dropdown-header">
+              <div class="profile-dropdown-name" id="dropdown-name"></div>
+              <div class="profile-dropdown-role" id="dropdown-role"></div>
+            </div>
+            <button class="profile-dropdown-item danger" id="dropdown-signout">🚪 Sign Out</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Notification panel -->
+    <div class="notif-panel" id="notif-panel">
+      <div class="notif-panel-header">
+        <h3>Notifications</h3>
+        <button class="btn btn-ghost btn-sm" id="notif-close">✕</button>
+      </div>
+      <div class="notif-panel-body" id="notif-list"></div>
+    </div>
+
+    <div class="page-content">
+
+      <!-- ═══ OVERVIEW VIEW ═══ -->
+      <div id="view-overview" class="view-section">
+        <div class="view-header">
+          <h2>Pharmacy Overview</h2>
+          <p class="view-subtitle">Today's summary and quick actions</p>
+        </div>
+
+        <div class="stats-grid" id="overview-stats">
+          <div class="stat-card">
+            <div class="stat-card-icon">💊</div>
+            <div class="stat-card-body">
+              <div class="stat-card-value" id="stat-pending-rx">—</div>
+              <div class="stat-card-label">Pending Prescriptions</div>
+            </div>
+          </div>
+          <div class="stat-card stat-card-warning">
+            <div class="stat-card-icon">⚠️</div>
+            <div class="stat-card-body">
+              <div class="stat-card-value" id="stat-low-stock">—</div>
+              <div class="stat-card-label">Low Stock Alerts</div>
+            </div>
+          </div>
+          <div class="stat-card stat-card-danger">
+            <div class="stat-card-icon">📅</div>
+            <div class="stat-card-body">
+              <div class="stat-card-value" id="stat-expiring">—</div>
+              <div class="stat-card-label">Expiring Soon (30 days)</div>
+            </div>
+          </div>
+          <div class="stat-card stat-card-success">
+            <div class="stat-card-icon">✅</div>
+            <div class="stat-card-body">
+              <div class="stat-card-value" id="stat-dispensed-today">—</div>
+              <div class="stat-card-label">Today's Dispensed</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-actions-section">
+          <h3>Quick Actions</h3>
+          <div class="quick-actions-grid">
+            <button class="quick-action-btn" data-view="prescriptions">
+              <span class="quick-action-icon">💊</span>
+              <span>View Prescriptions</span>
+            </button>
+            <button class="quick-action-btn" data-view="inventory">
+              <span class="quick-action-icon">📦</span>
+              <span>Check Inventory</span>
+            </button>
+            <button class="quick-action-btn" data-view="dispense">
+              <span class="quick-action-icon">🏥</span>
+              <span>Dispense</span>
+            </button>
+            <button class="quick-action-btn" id="qa-receive-stock">
+              <span class="quick-action-icon">📥</span>
+              <span>Receive Stock</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <div class="section-card-header">
+            <h3>Low Stock Alerts</h3>
+            <button class="btn btn-ghost btn-sm" data-view="inventory">View All</button>
+          </div>
+          <div id="overview-low-stock-list"></div>
+        </div>
+      </div>
+
+      <!-- ═══ INBOX VIEW ═══ -->
+      <div id="view-inbox" class="view-section" style="display:none">
+        <div class="view-header">
+          <h2>Inbox</h2>
+          <p class="view-subtitle">Patient files sent to pharmacy</p>
+        </div>
+        <div class="filter-bar">
+          <button class="filter-chip active" data-inbox-filter="active">Active</button>
+          <button class="filter-chip" data-inbox-filter="all">All</button>
+          <button class="filter-chip" data-inbox-filter="completed">Completed</button>
+        </div>
+        <div id="inbox-list"></div>
+      </div>
+
+      <!-- ═══ PRESCRIPTIONS QUEUE VIEW ═══ -->
+      <div id="view-prescriptions" class="view-section" style="display:none">
+        <div class="view-header">
+          <h2>Prescriptions Queue</h2>
+          <p class="view-subtitle">Active prescriptions awaiting dispensing</p>
+        </div>
+        <div class="filter-bar">
+          <button class="filter-chip active" data-rx-filter="active">Active</button>
+          <button class="filter-chip" data-rx-filter="partially_dispensed">Partially Dispensed</button>
+          <button class="filter-chip" data-rx-filter="dispensed">Completed</button>
+        </div>
+        <div id="prescriptions-list"></div>
+      </div>
+
+      <!-- ═══ MEDICINE INVENTORY VIEW ═══ -->
+      <div id="view-inventory" class="view-section" style="display:none">
+        <div class="view-header">
+          <h2>Medicine Inventory</h2>
+          <p class="view-subtitle">Manage medicine catalog and stock levels</p>
+          <button class="btn btn-primary" id="add-medicine-btn">+ Add Medicine</button>
+        </div>
+        <div class="search-filter-bar">
+          <input type="search" class="search-input" id="inventory-search" placeholder="Search medicines..."/>
+          <div class="filter-chips">
+            <button class="filter-chip active" data-inv-filter="all">All</button>
+            <button class="filter-chip" data-inv-filter="low">Low Stock</button>
+            <button class="filter-chip" data-inv-filter="out">Out of Stock</button>
+            <button class="filter-chip" data-inv-filter="expiring">Expiring Soon</button>
+          </div>
+        </div>
+        <div id="inventory-grid" class="medicine-grid"></div>
+      </div>
+
+      <!-- ═══ DISPENSE MEDICATION VIEW ═══ -->
+      <div id="view-dispense" class="view-section" style="display:none">
+        <div class="view-header">
+          <h2>Dispense Medication</h2>
+          <p class="view-subtitle">Search a prescription and dispense medications</p>
+        </div>
+        <div class="dispense-search-bar">
+          <input type="text" class="search-input" id="dispense-search" placeholder="Enter RX number or patient hospital number…"/>
+          <button class="btn btn-primary" id="dispense-search-btn">Search</button>
+        </div>
+        <div id="dispense-prescription-detail"></div>
+      </div>
+
+      <!-- ═══ INVENTORY MOVEMENTS VIEW ═══ -->
+      <div id="view-movements" class="view-section" style="display:none">
+        <div class="view-header">
+          <h2>Inventory Movements</h2>
+          <p class="view-subtitle">Full log of stock changes</p>
+        </div>
+        <div class="filter-bar">
+          <button class="filter-chip active" data-mv-filter="all">All</button>
+          <button class="filter-chip" data-mv-filter="stock_receipt">Stock Receipt</button>
+          <button class="filter-chip" data-mv-filter="dispense">Dispense</button>
+          <button class="filter-chip" data-mv-filter="adjustment">Adjustment</button>
+          <button class="filter-chip" data-mv-filter="expired">Expired</button>
+          <button class="filter-chip" data-mv-filter="returned">Returned</button>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="movements-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Medicine</th>
+                <th>Movement Type</th>
+                <th>Quantity</th>
+                <th>Previous Stock</th>
+                <th>Resulting Stock</th>
+                <th>Performed By</th>
+              </tr>
+            </thead>
+            <tbody id="movements-tbody"></tbody>
+          </table>
+        </div>
+        <div id="movements-pagination"></div>
+      </div>
+
+    </div><!-- /.page-content -->
+  </main>
+</div>
+
+<!-- ═══════════════════ MODALS ═══════════════════ -->
+
+<!-- Add/Edit Medicine Modal -->
+<div class="modal-overlay" id="medicine-modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="medicine-modal-title">Add Medicine</h3>
+      <button class="modal-close" id="medicine-modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="medicine-form">
+        <input type="hidden" name="medicine_id" id="medicine-edit-id"/>
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Medicine Name <span class="required">*</span></label>
+            <input type="text" class="form-input" name="medicine_name" required/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Generic Name</label>
+            <input type="text" class="form-input" name="generic_name"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Brand Name</label>
+            <input type="text" class="form-input" name="brand_name"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Strength</label>
+            <input type="text" class="form-input" name="strength" placeholder="e.g. 500mg"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Dosage Form <span class="required">*</span></label>
+            <select class="form-select" name="dosage_form" required>
+              <option value="">Select form…</option>
+              <option value="tablet">Tablet</option>
+              <option value="capsule">Capsule</option>
+              <option value="syrup">Syrup</option>
+              <option value="injection">Injection</option>
+              <option value="cream">Cream</option>
+              <option value="ointment">Ointment</option>
+              <option value="drops">Drops</option>
+              <option value="inhaler">Inhaler</option>
+              <option value="suspension">Suspension</option>
+              <option value="powder">Powder</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Unit of Measure</label>
+            <input type="text" class="form-input" name="unit_of_measure" placeholder="e.g. tabs, ml, vials"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">SKU / Item Code</label>
+            <input type="text" class="form-input" name="sku"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reorder Level</label>
+            <input type="number" class="form-input" name="reorder_level" min="0" value="10"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Purchase Price (₦)</label>
+            <input type="number" class="form-input" name="purchase_price" min="0" step="0.01"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Selling Price (₦)</label>
+            <input type="number" class="form-input" name="selling_price" min="0" step="0.01"/>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="medicine-modal-cancel">Cancel</button>
+      <button class="btn btn-primary" id="medicine-modal-save">Save Medicine</button>
+    </div>
+  </div>
+</div>
+
+<!-- Receive Stock Modal -->
+<div class="modal-overlay" id="stock-modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Receive Stock</h3>
+      <button class="modal-close" id="stock-modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-subtitle" id="stock-modal-medicine-name"></p>
+      <form id="stock-form">
+        <input type="hidden" name="medicine_id" id="stock-medicine-id"/>
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Batch Number <span class="required">*</span></label>
+            <input type="text" class="form-input" name="batch_number" required/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Quantity <span class="required">*</span></label>
+            <input type="number" class="form-input" name="quantity" min="1" required/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Manufacture Date</label>
+            <input type="date" class="form-input" name="manufacture_date"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Expiry Date <span class="required">*</span></label>
+            <input type="date" class="form-input" name="expiry_date" required/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Purchase Price (₦)</label>
+            <input type="number" class="form-input" name="purchase_price" min="0" step="0.01"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Supplier Name</label>
+            <input type="text" class="form-input" name="supplier_name"/>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="stock-modal-cancel">Cancel</button>
+      <button class="btn btn-primary" id="stock-modal-save">Receive Stock</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dispense Prescription Modal -->
+<div class="modal-overlay" id="dispense-modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>Dispense Prescription</h3>
+      <button class="modal-close" id="dispense-modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="dispense-modal-content"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="dispense-modal-cancel">Cancel</button>
+      <button class="btn btn-primary" id="dispense-modal-confirm">Confirm Dispense</button>
+    </div>
+  </div>
+</div>
+
+<!-- Inbox Patient Panel Modal -->
+<div class="modal-overlay" id="patient-panel-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>Patient Summary</h3>
+      <button class="modal-close" id="patient-panel-close">✕</button>
+    </div>
+    <div class="modal-body" id="patient-panel-content"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="patient-panel-dismiss">Close</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="../js/pharmacy.js"></script>
+</body>
+</html>

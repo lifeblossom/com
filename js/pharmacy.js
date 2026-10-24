@@ -1,0 +1,1161 @@
+/**
+ * Life Blossom Care and Cure Hospital — EMR System
+ * Pharmacy Dashboard Controller
+ *
+ * Handles all views: Overview, Inbox, Prescriptions Queue,
+ * Medicine Inventory, Dispense Medication, Inventory Movements.
+ */
+
+import { requireAuth, signOut } from './auth.js';
+import { supabase } from './supabase-client.js';
+import {
+  getInitials, formatRole, formatDate, calculateAge,
+  getStatusBadgeClass, showToast, debounce, timeAgo,
+  escapeHtml, formatTransferStatus, formatCurrency,
+  showLoading, showEmpty, showError, renderPagination, showConfirm,
+} from './utils.js';
+import {
+  getMyInbox, countUnreadInbox,
+  acknowledgeTransfer, updateTransferStatus,
+} from './api/transfers-api.js';
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let currentProfile   = null;
+let currentView      = 'overview';
+let inboxFilter      = 'active';
+let rxFilter         = 'active';
+let invFilter        = 'all';
+let mvFilter         = 'all';
+let mvPage           = 1;
+const MV_PER_PAGE    = 20;
+
+// Lazy-load guards (each view loads once then reloads on tab switch)
+const loaded = {};
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+async function init() {
+  const profile = await requireAuth();
+  if (!profile) { window.location.href = '../index.html'; return; }
+  if (profile.role !== 'pharmacist') { window.location.href = '../index.html'; return; }
+  currentProfile = profile;
+  initUI(profile);
+  await Promise.all([loadOverview(), loadNotifications()]);
+}
+
+// ─── UI Bootstrap ─────────────────────────────────────────────────────────────
+function initUI(profile) {
+  // Avatars & names
+  const initials = getInitials(profile.full_name);
+  ['sidebar-avatar', 'topbar-avatar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = initials;
+  });
+  document.getElementById('sidebar-name').textContent    = profile.full_name;
+  document.getElementById('sidebar-role').textContent    = formatRole(profile.role);
+  document.getElementById('topbar-name').textContent     = profile.full_name;
+  document.getElementById('dropdown-name').textContent   = profile.full_name;
+  document.getElementById('dropdown-role').textContent   = formatRole(profile.role);
+
+  // Sidebar toggle
+  document.getElementById('sidebar-toggle').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('mobile-open');
+    document.getElementById('sidebar-overlay').classList.toggle('visible');
+  });
+  document.getElementById('sidebar-overlay').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.remove('mobile-open');
+    document.getElementById('sidebar-overlay').classList.remove('visible');
+  });
+
+  // Profile dropdown
+  document.getElementById('profile-btn').addEventListener('click', () =>
+    document.getElementById('profile-menu').classList.toggle('open'));
+  document.addEventListener('click', e => {
+    if (!document.getElementById('profile-menu').contains(e.target))
+      document.getElementById('profile-menu').classList.remove('open');
+  });
+
+  // Sign out
+  document.getElementById('sign-out-btn').addEventListener('click', handleSignOut);
+  document.getElementById('dropdown-signout').addEventListener('click', handleSignOut);
+
+  // Notification panel
+  document.getElementById('notif-btn').addEventListener('click', () =>
+    document.getElementById('notif-panel').classList.toggle('open'));
+  document.getElementById('notif-close').addEventListener('click', () =>
+    document.getElementById('notif-panel').classList.remove('open'));
+
+  // Nav items
+  document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.preventDefault();
+      switchView(el.dataset.view);
+    });
+  });
+
+  // Overview quick actions (chips with data-view)
+  document.querySelectorAll('[data-view][data-qa]').forEach(el => {
+    el.addEventListener('click', () => switchView(el.dataset.view));
+  });
+  const qaReceive = document.getElementById('qa-receive-stock');
+  if (qaReceive) qaReceive.addEventListener('click', () => {
+    switchView('inventory');
+  });
+
+  // Inbox filter chips
+  document.querySelectorAll('[data-inbox-filter]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('[data-inbox-filter]').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      inboxFilter = chip.dataset.inboxFilter;
+      loadInbox();
+    });
+  });
+
+  // Prescriptions filter chips
+  document.querySelectorAll('[data-rx-filter]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('[data-rx-filter]').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      rxFilter = chip.dataset.rxFilter;
+      loadPrescriptions();
+    });
+  });
+
+  // Inventory filter chips
+  document.querySelectorAll('[data-inv-filter]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('[data-inv-filter]').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      invFilter = chip.dataset.invFilter;
+      loadInventory();
+    });
+  });
+
+  // Inventory search (debounced)
+  const invSearch = document.getElementById('inventory-search');
+  if (invSearch) invSearch.addEventListener('input', debounce(() => loadInventory(), 350));
+
+  // Add medicine button
+  const addMedBtn = document.getElementById('add-medicine-btn');
+  if (addMedBtn) addMedBtn.addEventListener('click', () => openMedicineModal());
+
+  // Dispense view search
+  const dispSearch    = document.getElementById('dispense-search');
+  const dispSearchBtn = document.getElementById('dispense-search-btn');
+  if (dispSearchBtn) dispSearchBtn.addEventListener('click', () => doDispenseSearch());
+  if (dispSearch) {
+    dispSearch.addEventListener('keydown', e => {
+      if (e.key === 'Enter') doDispenseSearch();
+    });
+  }
+
+  // Movements filter chips
+  document.querySelectorAll('[data-mv-filter]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('[data-mv-filter]').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      mvFilter = chip.dataset.mvFilter;
+      mvPage   = 1;
+      loadMovements();
+    });
+  });
+
+  // Medicine modal
+  setupModalClose('medicine-modal-overlay', 'medicine-modal-close', 'medicine-modal-cancel');
+  document.getElementById('medicine-modal-save').addEventListener('click', saveMedicine);
+
+  // Stock modal
+  setupModalClose('stock-modal-overlay', 'stock-modal-close', 'stock-modal-cancel');
+  document.getElementById('stock-modal-save').addEventListener('click', saveStock);
+
+  // Dispense modal
+  setupModalClose('dispense-modal-overlay', 'dispense-modal-close', 'dispense-modal-cancel');
+  document.getElementById('dispense-modal-confirm').addEventListener('click', confirmDispense);
+
+  // Patient panel modal
+  setupModalClose('patient-panel-overlay', 'patient-panel-close', 'patient-panel-dismiss');
+}
+
+function setupModalClose(overlayId, closeId, cancelId) {
+  const close = () => document.getElementById(overlayId)?.classList.remove('active');
+  document.getElementById(closeId)?.addEventListener('click', close);
+  document.getElementById(cancelId)?.addEventListener('click', close);
+  document.getElementById(overlayId)?.addEventListener('click', e => {
+    if (e.target === document.getElementById(overlayId)) close();
+  });
+}
+
+async function handleSignOut() {
+  await signOut();
+  window.location.href = '../index.html';
+}
+
+// ─── View Switching ───────────────────────────────────────────────────────────
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.view-section').forEach(s => s.style.display = 'none');
+  document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
+
+  const section = document.getElementById(`view-${view}`);
+  if (section) section.style.display = 'block';
+
+  const navItem = document.querySelector(`.nav-item[data-view="${view}"]`);
+  if (navItem) navItem.classList.add('active');
+
+  const titles = {
+    overview:      'Overview',
+    inbox:         'Inbox',
+    prescriptions: 'Prescriptions Queue',
+    inventory:     'Medicine Inventory',
+    dispense:      'Dispense Medication',
+    movements:     'Inventory Movements',
+  };
+  document.getElementById('page-title').textContent = titles[view] || 'Pharmacy';
+
+  // Lazy-load on first switch (reload on every subsequent visit too)
+  if (view === 'inbox')         loadInbox();
+  if (view === 'prescriptions') loadPrescriptions();
+  if (view === 'inventory')     loadInventory();
+  if (view === 'movements')     loadMovements();
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+async function loadNotifications() {
+  const count    = await countUnreadInbox();
+  const badge    = document.getElementById('notif-count');
+  const navBadge = document.getElementById('inbox-nav-badge');
+  const display  = count > 0 ? 'flex' : 'none';
+
+  if (badge) {
+    badge.textContent    = count > 99 ? '99+' : count;
+    badge.style.display  = display;
+  }
+  if (navBadge) {
+    navBadge.textContent   = count > 99 ? '99+' : count;
+    navBadge.style.display = count > 0 ? 'inline-flex' : 'none';
+  }
+
+  // Populate notification panel preview
+  const { data } = await getMyInbox('active');
+  const list = document.getElementById('notif-list');
+  if (!list) return;
+  if (!data || data.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:1rem">No new notifications</div>';
+    return;
+  }
+  list.innerHTML = data.slice(0, 10).map(t => `
+    <div class="notif-item" style="padding:.75rem 1rem;border-bottom:1px solid var(--border-color);cursor:pointer" data-transfer-id="${escapeHtml(t.id)}">
+      <div style="font-weight:600;font-size:.85rem">${escapeHtml(t.patient?.first_name || '')} ${escapeHtml(t.patient?.last_name || '')}</div>
+      <div style="font-size:.8rem;color:var(--text-muted)">${escapeHtml(t.sender?.full_name || '—')} · ${timeAgo(t.created_at)}</div>
+    </div>
+  `).join('');
+  list.querySelectorAll('.notif-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.getElementById('notif-panel').classList.remove('open');
+      const transfer = data.find(t => t.id === item.dataset.transferId);
+      if (transfer) openPatientPanel(transfer);
+    });
+  });
+}
+
+// ─── Overview ─────────────────────────────────────────────────────────────────
+async function loadOverview() {
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  const now        = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const in30Days   = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const [pendingRes, lowRes, expiringRes, dispensedRes] = await Promise.all([
+    supabase.from('prescriptions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'active'),
+    supabase.from('medicines')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_active', true)
+      .filter('stock_quantity', 'lte', supabase.raw('"reorder_level"')),
+    supabase.from('medicine_batches')
+      .select('id', { count: 'exact', head: true })
+      .lte('expiry_date', in30Days)
+      .gt('quantity_remaining', 0),
+    supabase.from('inventory_movements')
+      .select('id', { count: 'exact', head: true })
+      .eq('movement_type', 'dispense')
+      .gte('performed_at', todayStart),
+  ]);
+
+  setStatEl('stat-pending-rx',    pendingRes.count    ?? 0);
+  setStatEl('stat-dispensed-today', dispensedRes.count ?? 0);
+  setStatEl('stat-expiring',      expiringRes.count   ?? 0);
+
+  // Low stock count: medicines where stock_quantity <= reorder_level
+  // Using a plain query because supabase js doesn't support column-to-column filters directly
+  const { data: lowMeds } = await supabase.from('medicines')
+    .select('id, medicine_name, stock_quantity, reorder_level')
+    .eq('is_active', true)
+    .order('stock_quantity', { ascending: true });
+
+  const trulyLow = (lowMeds || []).filter(m => m.stock_quantity <= m.reorder_level);
+  setStatEl('stat-low-stock', trulyLow.length);
+
+  // ── Low stock list (top 5) ─────────────────────────────────────────────────
+  const container = document.getElementById('overview-low-stock-list');
+  if (!container) return;
+
+  const top5 = trulyLow.slice(0, 5);
+  if (top5.length === 0) {
+    container.innerHTML = '<div class="empty-state">All medicines are adequately stocked.</div>';
+    return;
+  }
+  container.innerHTML = top5.map(m => {
+    const stockColor = m.stock_quantity === 0 ? 'var(--danger)' : 'var(--warning)';
+    return `
+      <div class="list-item" style="padding:.6rem .75rem">
+        <div class="list-item-body">
+          <div class="list-item-title" style="font-size:.9rem">${escapeHtml(m.medicine_name)}</div>
+          <div class="list-item-meta">Reorder level: ${escapeHtml(String(m.reorder_level))}</div>
+        </div>
+        <div class="list-item-aside">
+          <span style="font-weight:700;color:${stockColor};font-size:.95rem">${escapeHtml(String(m.stock_quantity))}</span>
+          <span style="font-size:.75rem;color:var(--text-muted)">in stock</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function setStatEl(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+// ─── Inbox ────────────────────────────────────────────────────────────────────
+async function loadInbox() {
+  const container = document.getElementById('inbox-list');
+  if (!container) return;
+  container.innerHTML = '<div class="loading-state">Loading inbox...</div>';
+
+  const { data, error } = await getMyInbox(inboxFilter);
+  if (error) {
+    container.innerHTML = `<div class="error-state">Error: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+  if (!data || data.length === 0) {
+    container.innerHTML = '<div class="empty-state">No inbox items found.</div>';
+    return;
+  }
+
+  container.innerHTML = data.map(t => renderInboxItem(t)).join('');
+  bindInboxActions(container, data);
+}
+
+function renderInboxItem(t) {
+  const patient    = t.patient || {};
+  const sender     = t.sender  || {};
+  const name       = `${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Unknown';
+  const statusCls  = getStatusBadgeClass(t.status);
+  return `
+    <div class="list-item inbox-item" data-id="${escapeHtml(t.id)}" style="cursor:pointer">
+      <div class="list-item-avatar">${getInitials(name)}</div>
+      <div class="list-item-body">
+        <div class="list-item-title">${escapeHtml(name)} <span class="text-muted" style="font-weight:400">· ${escapeHtml(patient.hospital_number || '')}</span></div>
+        <div class="list-item-meta">From: ${escapeHtml(sender.full_name || '—')} (${escapeHtml(sender.department || '')})</div>
+        ${t.message ? `<div class="list-item-note">${escapeHtml(t.message)}</div>` : ''}
+      </div>
+      <div class="list-item-aside">
+        <span class="badge ${statusCls}">${formatTransferStatus(t.status)}</span>
+        <span class="text-muted" style="font-size:.75rem">${timeAgo(t.created_at)}</span>
+        <div class="item-actions" style="margin-top:.4rem">
+          ${t.status === 'sent' ? `<button class="btn btn-warning btn-xs ack-btn" data-id="${escapeHtml(t.id)}">Acknowledge</button>` : ''}
+          ${renderInboxStatusActions(t)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderInboxStatusActions(t) {
+  const opts = [];
+  if (['sent', 'received'].includes(t.status))
+    opts.push({ label: 'In Progress', value: 'in_progress' });
+  if (t.status === 'in_progress')
+    opts.push({ label: 'Awaiting Results', value: 'awaiting_results' });
+  if (['in_progress', 'awaiting_results'].includes(t.status)) {
+    opts.push({ label: 'Complete',  value: 'completed' });
+    opts.push({ label: 'Return',    value: 'returned'  });
+  }
+  if (opts.length === 0) return '';
+  return `
+    <select class="status-select form-control form-control-xs" data-id="${escapeHtml(t.id)}">
+      <option value="">Update status...</option>
+      ${opts.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
+    </select>
+  `;
+}
+
+function bindInboxActions(container, data) {
+  container.querySelectorAll('.inbox-item').forEach(item => {
+    item.addEventListener('click', e => {
+      if (e.target.closest('.ack-btn') || e.target.closest('.status-select')) return;
+      const transfer = data.find(t => t.id === item.dataset.id);
+      if (transfer) openPatientPanel(transfer);
+    });
+  });
+
+  container.querySelectorAll('.ack-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      btn.disabled = true;
+      const { error } = await acknowledgeTransfer(btn.dataset.id);
+      if (error) { showToast(error.message, 'error'); btn.disabled = false; }
+      else { showToast('Transfer acknowledged', 'success'); loadInbox(); loadNotifications(); }
+    });
+  });
+
+  container.querySelectorAll('.status-select').forEach(sel => {
+    sel.addEventListener('change', async e => {
+      e.stopPropagation();
+      if (!sel.value) return;
+      const { error } = await updateTransferStatus(sel.dataset.id, sel.value);
+      if (error) { showToast(error.message, 'error'); }
+      else { showToast('Status updated', 'success'); loadInbox(); }
+    });
+  });
+}
+
+// ─── Patient Panel (Inbox detail) ─────────────────────────────────────────────
+async function openPatientPanel(transfer) {
+  const overlay  = document.getElementById('patient-panel-overlay');
+  const content  = document.getElementById('patient-panel-content');
+  if (!overlay || !content) return;
+  overlay.classList.add('active');
+  content.innerHTML = '<div class="loading-state">Loading patient info...</div>';
+
+  const patient = transfer.patient || {};
+  const name    = `${patient.first_name || ''} ${patient.middle_name ? patient.middle_name + ' ' : ''}${patient.last_name || ''}`.trim();
+
+  // Fetch active prescriptions for this patient
+  const { data: prescriptions, error: rxErr } = await supabase.from('prescriptions')
+    .select(`*, prescription_items(*), prescribing_doctor:profiles(full_name)`)
+    .eq('patient_id', patient.id)
+    .in('status', ['active', 'partially_dispensed'])
+    .order('created_at', { ascending: false });
+
+  content.innerHTML = `
+    <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem">
+      <div class="list-item-avatar" style="width:48px;height:48px;font-size:1.1rem">${getInitials(name)}</div>
+      <div>
+        <div style="font-weight:700;font-size:1rem">${escapeHtml(name)}</div>
+        <div style="font-size:.82rem;color:var(--text-muted)">HN: ${escapeHtml(patient.hospital_number || '—')} · ${calculateAge(patient.date_of_birth)}</div>
+      </div>
+      <span class="badge ${getStatusBadgeClass(transfer.status)}" style="margin-left:auto">${formatTransferStatus(transfer.status)}</span>
+    </div>
+
+    <div style="margin-bottom:.5rem;font-size:.85rem;color:var(--text-muted)">From: ${escapeHtml(transfer.sender?.full_name || '—')}</div>
+    ${transfer.message ? `<div class="list-item-note" style="margin-bottom:1rem">${escapeHtml(transfer.message)}</div>` : ''}
+
+    <hr style="margin:.75rem 0">
+    <div style="font-weight:600;font-size:.9rem;margin-bottom:.6rem">Active Prescriptions</div>
+
+    ${rxErr || !prescriptions || prescriptions.length === 0
+      ? `<div class="empty-state">No active prescriptions found.</div>`
+      : prescriptions.map(rx => `
+          <div style="background:var(--bg-secondary,#f8fafc);border:1px solid var(--border-color);border-radius:8px;padding:.75rem;margin-bottom:.6rem">
+            <div style="font-weight:600;font-size:.875rem">
+              RX #${escapeHtml(rx.rx_number || rx.id.slice(0, 8))}
+              <span class="badge ${getStatusBadgeClass(rx.status)}" style="margin-left:.5rem">${escapeHtml(rx.status || '')}</span>
+            </div>
+            <div style="font-size:.78rem;color:var(--text-muted);margin:.2rem 0">
+              ${formatDate(rx.created_at, 'datetime')} · Dr. ${escapeHtml(rx.prescribing_doctor?.full_name || '—')}
+            </div>
+            ${(rx.prescription_items || []).map(item => `
+              <div style="font-size:.82rem;margin-top:.3rem">
+                💊 ${escapeHtml(item.medicine_name)} ${escapeHtml(item.strength || '')}
+                — ${escapeHtml(item.dosage || '')} ${escapeHtml(item.frequency || '')}
+                ${escapeHtml(item.duration ? `for ${item.duration}` : '')}
+              </div>
+            `).join('')}
+            <button class="btn btn-primary btn-xs" style="margin-top:.6rem" data-rx-id="${escapeHtml(rx.id)}">
+              💊 Dispense
+            </button>
+          </div>
+        `).join('')
+    }
+  `;
+
+  // Wire up dispense buttons in panel
+  content.querySelectorAll('[data-rx-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      overlay.classList.remove('active');
+      const rx = prescriptions.find(r => r.id === btn.dataset.rxId);
+      if (rx) openDispenseModal(rx, patient);
+    });
+  });
+}
+
+// ─── Prescriptions Queue ──────────────────────────────────────────────────────
+async function loadPrescriptions() {
+  const container = document.getElementById('prescriptions-list');
+  if (!container) return;
+  container.innerHTML = '<div class="loading-state">Loading prescriptions...</div>';
+
+  let query = supabase.from('prescriptions')
+    .select(`
+      *,
+      patient:patients(id, first_name, last_name, hospital_number, date_of_birth, sex),
+      prescription_items(*),
+      prescribing_doctor:profiles(full_name)
+    `)
+    .order('created_at', { ascending: false });
+
+  if (rxFilter !== 'all') query = query.eq('status', rxFilter);
+
+  const { data, error } = await query;
+  if (error) {
+    container.innerHTML = `<div class="error-state">Error: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+  if (!data || data.length === 0) {
+    container.innerHTML = '<div class="empty-state">No prescriptions found.</div>';
+    return;
+  }
+
+  container.innerHTML = data.map(rx => renderRxCard(rx)).join('');
+
+  container.querySelectorAll('.dispense-rx-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rx      = data.find(r => r.id === btn.dataset.rxId);
+      const patient = rx?.patient;
+      if (rx && patient) openDispenseModal(rx, patient);
+    });
+  });
+}
+
+function renderRxCard(rx) {
+  const patient = rx.patient || {};
+  const items   = rx.prescription_items || [];
+  const name    = `${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Unknown';
+
+  return `
+    <div class="list-item" style="flex-direction:column;align-items:stretch;gap:.5rem">
+      <div style="display:flex;align-items:flex-start;gap:.75rem">
+        <div class="list-item-avatar">${getInitials(name)}</div>
+        <div style="flex:1">
+          <div class="list-item-title">
+            RX #${escapeHtml(rx.rx_number || rx.id.slice(0, 8))} —
+            ${escapeHtml(name)}
+            <span class="text-muted" style="font-weight:400">· ${escapeHtml(patient.hospital_number || '—')}</span>
+          </div>
+          <div class="list-item-meta">
+            Dr. ${escapeHtml(rx.prescribing_doctor?.full_name || '—')} · ${formatDate(rx.created_at, 'datetime')}
+          </div>
+          <div style="margin-top:.4rem">
+            ${items.map(item => `
+              <div style="font-size:.82rem;margin-top:.25rem">
+                💊 ${escapeHtml(item.medicine_name)} ${escapeHtml(item.strength || '')}
+                — ${escapeHtml(item.dosage || '')} ${escapeHtml(item.frequency || '')}
+                ${item.duration ? `· ${escapeHtml(item.duration)}` : ''}
+                ${item.quantity ? `· Qty: <strong>${escapeHtml(String(item.quantity))}</strong>` : ''}
+                ${item.quantity_dispensed ? `<span style="color:var(--success)"> (${escapeHtml(String(item.quantity_dispensed))} dispensed)</span>` : ''}
+              </div>
+            `).join('')}
+          </div>
+          ${rx.notes ? `<div class="list-item-note" style="margin-top:.4rem">${escapeHtml(rx.notes)}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
+          <span class="badge ${getStatusBadgeClass(rx.status)}">${escapeHtml(rx.status || '')}</span>
+          ${rx.status !== 'dispensed' && rx.status !== 'cancelled' ? `
+            <button class="btn btn-primary btn-xs dispense-rx-btn" data-rx-id="${escapeHtml(rx.id)}">
+              💊 Dispense
+            </button>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── Medicine Inventory ───────────────────────────────────────────────────────
+async function loadInventory() {
+  const grid = document.getElementById('inventory-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div class="loading-state">Loading inventory...</div>';
+
+  const searchTerm = (document.getElementById('inventory-search')?.value || '').trim().toLowerCase();
+
+  let query = supabase.from('medicines')
+    .select('*')
+    .eq('is_active', true)
+    .order('medicine_name', { ascending: true });
+
+  if (searchTerm) {
+    query = query.or(`medicine_name.ilike.%${searchTerm}%,generic_name.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`);
+  }
+
+  let { data, error } = await query;
+  if (error) {
+    grid.innerHTML = `<div class="error-state">Error: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  data = data || [];
+
+  // Client-side filter for 'low', 'out', 'expiring'
+  if (invFilter === 'low') {
+    data = data.filter(m => m.stock_quantity > 0 && m.stock_quantity <= m.reorder_level);
+  } else if (invFilter === 'out') {
+    data = data.filter(m => m.stock_quantity === 0);
+  } else if (invFilter === 'expiring') {
+    const in30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const { data: batches } = await supabase.from('medicine_batches')
+      .select('medicine_id')
+      .lte('expiry_date', in30)
+      .gt('quantity_remaining', 0);
+    const expMedIds = new Set((batches || []).map(b => b.medicine_id));
+    data = data.filter(m => expMedIds.has(m.id));
+  }
+
+  if (data.length === 0) {
+    grid.innerHTML = '<div class="empty-state">No medicines found.</div>';
+    return;
+  }
+
+  grid.innerHTML = data.map(m => renderMedicineCard(m)).join('');
+
+  grid.querySelectorAll('.edit-medicine-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const med = data.find(m => m.id === btn.dataset.id);
+      if (med) openMedicineModal(med);
+    });
+  });
+
+  grid.querySelectorAll('.receive-stock-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const med = data.find(m => m.id === btn.dataset.id);
+      if (med) openStockModal(med);
+    });
+  });
+}
+
+function renderMedicineCard(m) {
+  let stockColor = 'var(--success)';
+  let stockLabel = 'In Stock';
+  if (m.stock_quantity === 0) {
+    stockColor = 'var(--danger)';
+    stockLabel = 'Out of Stock';
+  } else if (m.stock_quantity <= m.reorder_level) {
+    stockColor = 'var(--warning)';
+    stockLabel = 'Low Stock';
+  }
+
+  return `
+    <div class="medicine-card" style="background:var(--bg-primary,#fff);border:1px solid var(--border-color);border-radius:12px;padding:1rem;display:flex;flex-direction:column;gap:.5rem">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem">
+        <div>
+          <div style="font-weight:700;font-size:.95rem">${escapeHtml(m.medicine_name)}</div>
+          ${m.generic_name ? `<div style="font-size:.8rem;color:var(--text-muted)">${escapeHtml(m.generic_name)}</div>` : ''}
+        </div>
+        <span style="background:${stockColor};color:#fff;border-radius:20px;padding:.2rem .6rem;font-size:.72rem;font-weight:600;white-space:nowrap">${stockLabel}</span>
+      </div>
+      <div style="font-size:.82rem;color:var(--text-muted)">
+        ${m.brand_name ? `Brand: ${escapeHtml(m.brand_name)} · ` : ''}${escapeHtml(m.dosage_form || '')} ${escapeHtml(m.strength || '')}
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-secondary,#f8fafc);border-radius:8px;padding:.5rem .75rem">
+        <div>
+          <div style="font-size:.75rem;color:var(--text-muted)">In Stock</div>
+          <div style="font-weight:700;font-size:1.2rem;color:${stockColor}">${escapeHtml(String(m.stock_quantity))}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:.75rem;color:var(--text-muted)">Reorder At</div>
+          <div style="font-weight:600;font-size:.95rem">${escapeHtml(String(m.reorder_level))}</div>
+        </div>
+      </div>
+      <div style="font-size:.78rem;color:var(--text-muted)">SKU: ${escapeHtml(m.sku || '—')}</div>
+      <div style="display:flex;gap:.5rem;margin-top:.25rem">
+        <button class="btn btn-ghost btn-xs edit-medicine-btn" data-id="${escapeHtml(m.id)}" style="flex:1">✏️ Edit</button>
+        <button class="btn btn-primary btn-xs receive-stock-btn" data-id="${escapeHtml(m.id)}" style="flex:1">📦 Receive Stock</button>
+      </div>
+    </div>
+  `;
+}
+
+// ─── Add / Edit Medicine Modal ────────────────────────────────────────────────
+function openMedicineModal(medicine = null) {
+  const overlay   = document.getElementById('medicine-modal-overlay');
+  const titleEl   = document.getElementById('medicine-modal-title');
+  const editIdEl  = document.getElementById('medicine-edit-id');
+  const form      = document.getElementById('medicine-form');
+  if (!overlay || !form) return;
+
+  form.reset();
+  editIdEl.value = '';
+
+  if (medicine) {
+    titleEl.textContent = 'Edit Medicine';
+    editIdEl.value      = medicine.id;
+    // Populate by field name attrs
+    const fields = ['medicine_name','generic_name','brand_name','strength','dosage_form',
+                    'unit_of_measure','sku','reorder_level','purchase_price','selling_price'];
+    fields.forEach(f => {
+      const el = form.querySelector(`[name="${f}"]`);
+      if (el && medicine[f] != null) el.value = medicine[f];
+    });
+  } else {
+    titleEl.textContent = 'Add Medicine';
+  }
+
+  overlay.classList.add('active');
+}
+
+async function saveMedicine() {
+  const form     = document.getElementById('medicine-form');
+  const editId   = document.getElementById('medicine-edit-id')?.value;
+  const btn      = document.getElementById('medicine-modal-save');
+  if (!form) return;
+
+  const medicineName = form.querySelector('[name="medicine_name"]')?.value.trim();
+  if (!medicineName) { showToast('Medicine name is required', 'warning'); return; }
+
+  const payload = {
+    medicine_name:   medicineName,
+    generic_name:    form.querySelector('[name="generic_name"]')?.value.trim()    || null,
+    brand_name:      form.querySelector('[name="brand_name"]')?.value.trim()      || null,
+    strength:        form.querySelector('[name="strength"]')?.value.trim()        || null,
+    dosage_form:     form.querySelector('[name="dosage_form"]')?.value.trim()     || null,
+    unit_of_measure: form.querySelector('[name="unit_of_measure"]')?.value.trim() || null,
+    sku:             form.querySelector('[name="sku"]')?.value.trim()             || null,
+    reorder_level:   parseInt(form.querySelector('[name="reorder_level"]')?.value) || 0,
+    purchase_price:  parseFloat(form.querySelector('[name="purchase_price"]')?.value) || null,
+    selling_price:   parseFloat(form.querySelector('[name="selling_price"]')?.value)  || null,
+    is_active:       true,
+  };
+
+  btn.disabled    = true;
+  btn.textContent = 'Saving...';
+
+  let error;
+  if (editId) {
+    ({ error } = await supabase.from('medicines').update(payload).eq('id', editId));
+  } else {
+    ({ error } = await supabase.from('medicines').insert([{ ...payload, stock_quantity: 0 }]));
+  }
+
+  btn.disabled    = false;
+  btn.textContent = 'Save Medicine';
+
+  if (error) { showToast(error.message, 'error'); return; }
+  showToast(editId ? 'Medicine updated' : 'Medicine added', 'success');
+  document.getElementById('medicine-modal-overlay').classList.remove('active');
+  loadInventory();
+}
+
+// ─── Receive Stock Modal ──────────────────────────────────────────────────────
+let _stockMedicineId   = null;
+let _stockCurrentQty   = 0;
+
+function openStockModal(medicine) {
+  const overlay  = document.getElementById('stock-modal-overlay');
+  const nameEl   = document.getElementById('stock-modal-medicine-name');
+  const medIdEl  = document.getElementById('stock-medicine-id');
+  const form     = document.getElementById('stock-form');
+  if (!overlay || !form) return;
+
+  form.reset();
+  _stockMedicineId = medicine.id;
+  _stockCurrentQty = medicine.stock_quantity || 0;
+  if (nameEl) nameEl.textContent = escapeHtml(medicine.medicine_name);
+  if (medIdEl) medIdEl.value     = medicine.id;
+
+  overlay.classList.add('active');
+}
+
+async function saveStock() {
+  const form = document.getElementById('stock-form');
+  const btn  = document.getElementById('stock-modal-save');
+  if (!form || !_stockMedicineId) return;
+
+  const batchNumber   = form.querySelector('[name="batch_number"]')?.value.trim();
+  const quantity      = parseInt(form.querySelector('[name="quantity"]')?.value) || 0;
+  const expiryDate    = form.querySelector('[name="expiry_date"]')?.value;
+  const manufactDate  = form.querySelector('[name="manufacture_date"]')?.value || null;
+  const purchasePrice = parseFloat(form.querySelector('[name="purchase_price"]')?.value) || null;
+  const supplierName  = form.querySelector('[name="supplier_name"]')?.value.trim() || null;
+
+  if (!batchNumber) { showToast('Batch number is required', 'warning'); return; }
+  if (quantity <= 0) { showToast('Quantity must be greater than zero', 'warning'); return; }
+  if (!expiryDate)   { showToast('Expiry date is required', 'warning'); return; }
+
+  btn.disabled    = true;
+  btn.textContent = 'Saving...';
+
+  const { data: user }  = await supabase.auth.getUser();
+  const userId          = user?.user?.id;
+  const previousStock   = _stockCurrentQty;
+  const resultingStock  = previousStock + quantity;
+
+  // 1. Insert medicine_batch
+  const { data: batch, error: batchErr } = await supabase.from('medicine_batches').insert([{
+    medicine_id:        _stockMedicineId,
+    batch_number:       batchNumber,
+    quantity_received:  quantity,
+    quantity_remaining: quantity,
+    manufacture_date:   manufactDate || null,
+    expiry_date:        expiryDate,
+    purchase_price:     purchasePrice,
+    supplier_name:      supplierName,
+    received_by:        userId,
+    received_at:        new Date().toISOString(),
+  }]).select().single();
+
+  if (batchErr) { showToast(batchErr.message, 'error'); btn.disabled = false; btn.textContent = 'Save'; return; }
+
+  // 2. Update medicines.stock_quantity
+  const { error: updateErr } = await supabase.from('medicines')
+    .update({ stock_quantity: resultingStock })
+    .eq('id', _stockMedicineId);
+
+  if (updateErr) { showToast(updateErr.message, 'error'); btn.disabled = false; btn.textContent = 'Save'; return; }
+
+  // 3. Insert inventory_movement
+  await supabase.from('inventory_movements').insert([{
+    medicine_id:     _stockMedicineId,
+    movement_type:   'stock_receipt',
+    quantity:        quantity,
+    previous_stock:  previousStock,
+    resulting_stock: resultingStock,
+    reference_id:    batch?.id || null,
+    notes:           `Batch: ${batchNumber}${supplierName ? ` from ${supplierName}` : ''}`,
+    performed_by:    userId,
+    performed_at:    new Date().toISOString(),
+  }]);
+
+  btn.disabled    = false;
+  btn.textContent = 'Save';
+
+  showToast(`Stock received: +${quantity} units`, 'success');
+  document.getElementById('stock-modal-overlay').classList.remove('active');
+  loadInventory();
+  if (currentView === 'overview') loadOverview();
+}
+
+// ─── Dispense — Search View ───────────────────────────────────────────────────
+async function doDispenseSearch() {
+  const query     = (document.getElementById('dispense-search')?.value || '').trim();
+  const container = document.getElementById('dispense-prescription-detail');
+  if (!container) return;
+
+  if (!query) { showToast('Enter an RX number or patient hospital number', 'warning'); return; }
+  container.innerHTML = '<div class="loading-state">Searching...</div>';
+
+  // Try matching RX number first, then patient HN
+  let { data, error } = await supabase.from('prescriptions')
+    .select(`
+      *,
+      patient:patients(id, first_name, last_name, hospital_number, date_of_birth, sex),
+      prescription_items(*),
+      prescribing_doctor:profiles(full_name)
+    `)
+    .or(`rx_number.ilike.%${query}%`)
+    .not('status', 'eq', 'cancelled')
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  if (error) { container.innerHTML = `<div class="error-state">${escapeHtml(error.message)}</div>`; return; }
+
+  // Also search by patient hospital number
+  if (!data || data.length === 0) {
+    const { data: byHN } = await supabase.from('prescriptions')
+      .select(`
+        *,
+        patient:patients!inner(id, first_name, last_name, hospital_number, date_of_birth, sex),
+        prescription_items(*),
+        prescribing_doctor:profiles(full_name)
+      `)
+      .eq('patient.hospital_number', query)
+      .not('status', 'eq', 'cancelled')
+      .order('created_at', { ascending: false })
+      .limit(10);
+    data = byHN || [];
+  }
+
+  if (!data || data.length === 0) {
+    container.innerHTML = '<div class="empty-state">No prescriptions found for that RX number or hospital number.</div>';
+    return;
+  }
+
+  container.innerHTML = data.map(rx => renderDispenseRxDetail(rx)).join('');
+
+  container.querySelectorAll('.open-dispense-modal-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rx      = data.find(r => r.id === btn.dataset.rxId);
+      const patient = rx?.patient;
+      if (rx && patient) openDispenseModal(rx, patient);
+    });
+  });
+}
+
+function renderDispenseRxDetail(rx) {
+  const patient = rx.patient || {};
+  const items   = rx.prescription_items || [];
+  const name    = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+
+  return `
+    <div style="background:var(--bg-primary,#fff);border:1px solid var(--border-color);border-radius:12px;padding:1.1rem;margin-bottom:1rem">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem">
+        <div class="list-item-avatar">${getInitials(name)}</div>
+        <div style="flex:1">
+          <div style="font-weight:700">${escapeHtml(name)}</div>
+          <div style="font-size:.8rem;color:var(--text-muted)">
+            HN: ${escapeHtml(patient.hospital_number || '—')} · ${calculateAge(patient.date_of_birth)} · ${escapeHtml(patient.sex || '')}
+          </div>
+        </div>
+        <span class="badge ${getStatusBadgeClass(rx.status)}">${escapeHtml(rx.status || '')}</span>
+      </div>
+      <div style="font-size:.83rem;color:var(--text-muted);margin-bottom:.6rem">
+        RX #${escapeHtml(rx.rx_number || rx.id.slice(0, 8))} ·
+        Dr. ${escapeHtml(rx.prescribing_doctor?.full_name || '—')} ·
+        ${formatDate(rx.created_at, 'datetime')}
+      </div>
+      <div style="background:var(--bg-secondary,#f8fafc);border-radius:8px;padding:.75rem;margin-bottom:.75rem">
+        ${items.map(item => `
+          <div style="font-size:.85rem;margin-bottom:.35rem;padding-bottom:.35rem;border-bottom:1px solid var(--border-color)">
+            💊 <strong>${escapeHtml(item.medicine_name)}</strong> ${escapeHtml(item.strength || '')}
+            <span style="color:var(--text-muted)">— ${escapeHtml(item.dosage || '')} ${escapeHtml(item.frequency || '')} ${item.duration ? `for ${escapeHtml(item.duration)}` : ''}</span>
+            <span style="float:right;font-size:.78rem">
+              Ordered: <strong>${escapeHtml(String(item.quantity || 0))}</strong>
+              · Dispensed: <strong style="color:var(--success)">${escapeHtml(String(item.quantity_dispensed || 0))}</strong>
+            </span>
+          </div>
+        `).join('')}
+      </div>
+      ${rx.status !== 'dispensed' && rx.status !== 'cancelled' ? `
+        <button class="btn btn-primary open-dispense-modal-btn" data-rx-id="${escapeHtml(rx.id)}">💊 Dispense Medication</button>
+      ` : `<div class="badge badge-success">Fully Dispensed</div>`}
+    </div>
+  `;
+}
+
+// ─── Dispense Modal ───────────────────────────────────────────────────────────
+let _dispenseRx      = null;
+let _dispensePatient = null;
+
+function openDispenseModal(rx, patient) {
+  _dispenseRx      = rx;
+  _dispensePatient = patient;
+
+  const overlay = document.getElementById('dispense-modal-overlay');
+  const content = document.getElementById('dispense-modal-content');
+  if (!overlay || !content) return;
+
+  const items       = rx.prescription_items || [];
+  const patientName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+
+  content.innerHTML = `
+    <div style="margin-bottom:1rem;padding:.75rem;background:var(--bg-secondary,#f8fafc);border-radius:8px">
+      <div style="font-weight:700">${escapeHtml(patientName)}</div>
+      <div style="font-size:.8rem;color:var(--text-muted)">HN: ${escapeHtml(patient.hospital_number || '—')} · RX #${escapeHtml(rx.rx_number || rx.id.slice(0, 8))}</div>
+    </div>
+
+    ${items.filter(i => i.status !== 'dispensed').map(item => {
+      const remaining = (item.quantity || 0) - (item.quantity_dispensed || 0);
+      return `
+        <div class="dispense-item-row" data-item-id="${escapeHtml(item.id)}" style="padding:.75rem;border:1px solid var(--border-color);border-radius:8px;margin-bottom:.6rem">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:.9rem">💊 ${escapeHtml(item.medicine_name)} ${escapeHtml(item.strength || '')}</div>
+              <div style="font-size:.78rem;color:var(--text-muted)">${escapeHtml(item.dosage || '')} ${escapeHtml(item.frequency || '')} ${item.duration ? `· ${escapeHtml(item.duration)}` : ''}</div>
+              <div style="font-size:.78rem;color:var(--text-muted)">Ordered: ${escapeHtml(String(item.quantity || 0))} · Already dispensed: ${escapeHtml(String(item.quantity_dispensed || 0))} · Remaining: <strong>${escapeHtml(String(remaining))}</strong></div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:.25rem">
+              <label style="font-size:.75rem;color:var(--text-muted)">Qty to dispense</label>
+              <input type="number" class="form-control dispense-qty-input"
+                data-item-id="${escapeHtml(item.id)}"
+                data-medicine-name="${escapeHtml(item.medicine_name)}"
+                value="${remaining}"
+                min="0"
+                max="${remaining}"
+                style="width:80px;text-align:center"
+              />
+            </div>
+          </div>
+          ${item.instructions ? `<div style="font-size:.78rem;margin-top:.35rem;color:var(--text-muted)">Instructions: ${escapeHtml(item.instructions)}</div>` : ''}
+        </div>
+      `;
+    }).join('')}
+
+    ${items.every(i => i.status === 'dispensed') ? '<div class="empty-state">All items already dispensed.</div>' : ''}
+  `;
+
+  overlay.classList.add('active');
+}
+
+async function confirmDispense() {
+  if (!_dispenseRx || !_dispensePatient) return;
+
+  const btn        = document.getElementById('dispense-modal-confirm');
+  const inputs     = document.querySelectorAll('.dispense-qty-input');
+  const { data: user } = await supabase.auth.getUser();
+  const userId     = user?.user?.id;
+
+  // Build dispense list
+  const toDispense = [];
+  inputs.forEach(input => {
+    const qty = parseInt(input.value) || 0;
+    if (qty > 0) toDispense.push({ itemId: input.dataset.itemId, qty, medicineName: input.dataset.medicineName });
+  });
+
+  if (toDispense.length === 0) { showToast('Enter at least one quantity to dispense', 'warning'); return; }
+
+  btn.disabled    = true;
+  btn.textContent = 'Processing...';
+
+  const items = _dispenseRx.prescription_items || [];
+
+  for (const d of toDispense) {
+    const item       = items.find(i => i.id === d.itemId);
+    if (!item) continue;
+    const newDispensed = (item.quantity_dispensed || 0) + d.qty;
+    const newStatus    = newDispensed >= (item.quantity || 0) ? 'dispensed' : 'partially_dispensed';
+
+    // Update prescription_item
+    const { error: itemErr } = await supabase.from('prescription_items')
+      .update({ quantity_dispensed: newDispensed, status: newStatus })
+      .eq('id', d.itemId);
+    if (itemErr) { showToast(`Error updating item: ${itemErr.message}`, 'error'); btn.disabled = false; btn.textContent = 'Confirm Dispense'; return; }
+
+    // Deduct from medicine stock
+    const { data: meds } = await supabase.from('medicines')
+      .select('id, stock_quantity')
+      .ilike('medicine_name', `%${d.medicineName}%`)
+      .limit(1);
+
+    if (meds && meds.length > 0) {
+      const med            = meds[0];
+      const prevStock      = med.stock_quantity;
+      const resultingStock = Math.max(0, prevStock - d.qty);
+
+      await supabase.from('medicines')
+        .update({ stock_quantity: resultingStock })
+        .eq('id', med.id);
+
+      await supabase.from('inventory_movements').insert([{
+        medicine_id:     med.id,
+        movement_type:   'dispense',
+        quantity:        d.qty,
+        previous_stock:  prevStock,
+        resulting_stock: resultingStock,
+        reference_id:    _dispenseRx.id,
+        notes:           `Dispensed for RX #${_dispenseRx.rx_number || _dispenseRx.id.slice(0, 8)} — Patient: ${_dispensePatient.hospital_number || '—'}`,
+        performed_by:    userId,
+        performed_at:    new Date().toISOString(),
+      }]);
+    }
+  }
+
+  // Update prescription overall status
+  const { data: updatedItems } = await supabase.from('prescription_items')
+    .select('quantity, quantity_dispensed')
+    .eq('prescription_id', _dispenseRx.id);
+
+  let rxStatus = 'dispensed';
+  if (updatedItems) {
+    const allFull = updatedItems.every(i => (i.quantity_dispensed || 0) >= (i.quantity || 0));
+    rxStatus = allFull ? 'dispensed' : 'partially_dispensed';
+  }
+
+  await supabase.from('prescriptions')
+    .update({ status: rxStatus })
+    .eq('id', _dispenseRx.id);
+
+  btn.disabled    = false;
+  btn.textContent = 'Confirm Dispense';
+
+  showToast('Medication dispensed successfully', 'success');
+  document.getElementById('dispense-modal-overlay').classList.remove('active');
+
+  // Refresh relevant views
+  if (currentView === 'prescriptions') loadPrescriptions();
+  if (currentView === 'inventory')     loadInventory();
+  if (currentView === 'overview')      loadOverview();
+
+  // Refresh dispense view search result if visible
+  const dispContainer = document.getElementById('dispense-prescription-detail');
+  if (dispContainer && dispContainer.innerHTML.includes(_dispenseRx.id)) doDispenseSearch();
+}
+
+// ─── Inventory Movements ──────────────────────────────────────────────────────
+async function loadMovements() {
+  const tbody      = document.getElementById('movements-tbody');
+  const pagination = document.getElementById('movements-pagination');
+  if (!tbody) return;
+
+  tbody.innerHTML = `<tr><td colspan="7"><div class="loading-state">Loading movements...</div></td></tr>`;
+
+  let query = supabase.from('inventory_movements')
+    .select(`
+      *,
+      medicine:medicines(medicine_name),
+      performed_by_profile:profiles(full_name)
+    `, { count: 'exact' })
+    .order('performed_at', { ascending: false })
+    .range((mvPage - 1) * MV_PER_PAGE, mvPage * MV_PER_PAGE - 1);
+
+  if (mvFilter !== 'all') query = query.eq('movement_type', mvFilter);
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="error-state">${escapeHtml(error.message)}</div></td></tr>`;
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">No movements found.</div></td></tr>`;
+    if (pagination) pagination.innerHTML = '';
+    return;
+  }
+
+  tbody.innerHTML = data.map(mv => {
+    const typeLabel = {
+      stock_receipt: 'Stock Receipt',
+      dispense:      'Dispense',
+      adjustment:    'Adjustment',
+      expired:       'Expired',
+      returned:      'Returned',
+    }[mv.movement_type] || escapeHtml(mv.movement_type || '');
+
+    const typeBadge = {
+      stock_receipt: 'badge-success',
+      dispense:      'badge-info',
+      adjustment:    'badge-warning',
+      expired:       'badge-danger',
+      returned:      'badge-secondary',
+    }[mv.movement_type] || '';
+
+    const qtySign = ['stock_receipt', 'returned'].includes(mv.movement_type) ? '+' : '-';
+    const qtyColor = ['stock_receipt', 'returned'].includes(mv.movement_type) ? 'var(--success)' : 'var(--danger)';
+
+    return `
+      <tr>
+        <td>${formatDate(mv.performed_at, 'datetime')}</td>
+        <td>${escapeHtml(mv.medicine?.medicine_name || '—')}</td>
+        <td><span class="badge ${typeBadge}">${typeLabel}</span></td>
+        <td style="font-weight:700;color:${qtyColor}">${qtySign}${escapeHtml(String(mv.quantity || 0))}</td>
+        <td>${escapeHtml(String(mv.previous_stock ?? '—'))}</td>
+        <td>${escapeHtml(String(mv.resulting_stock ?? '—'))}</td>
+        <td>${escapeHtml(mv.performed_by_profile?.full_name || '—')}</td>
+      </tr>
+    `;
+  }).join('');
+
+  if (pagination) {
+    pagination.innerHTML = renderPagination({
+      currentPage: mvPage,
+      totalCount:  count || 0,
+      perPage:     MV_PER_PAGE,
+      onPageChange: page => { mvPage = page; loadMovements(); },
+    });
+  }
+}
+
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', init);
