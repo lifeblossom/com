@@ -39,7 +39,7 @@ Publish the project root, preserving `index.html`, `css/`, `images/`, `js/`, and
 - `Strict-Transport-Security` (after HTTPS is fully enabled)
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: strict-origin-when-cross-origin`
-- A restrictive `Content-Security-Policy` matching the policy in `index.html` and allowing only the required Supabase endpoint and pinned jsDelivr module
+- A restrictive `Content-Security-Policy` matching the policies in the HTML pages and allowing Supabase HTTPS/WebSocket endpoints and the pinned jsDelivr module
 - `frame-ancestors 'none'` in the response CSP
 
 The login page has a CSP meta policy; response headers are needed to apply a consistent policy to all dashboard routes and for directives such as `frame-ancestors`.
