@@ -45,20 +45,28 @@ let editStaffUserId = null;
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
-  const profile = await requireAuth();
-  if (!profile) { window.location.href = '../index.html'; return; }
-  if (profile.role !== 'admin') { window.location.href = '../index.html'; return; }
-  currentProfile = profile;
-  initUI(profile);
-  await loadOverview();
-  viewLoaded.overview = true;
+  initUI();
+  try {
+    const profile = await requireAuth();
+    if (!profile || profile.role !== 'admin') {
+      window.location.href = '../index.html';
+      return;
+    }
+
+    currentProfile = profile;
+    renderProfile(profile);
+    await loadOverview();
+    viewLoaded.overview = true;
+  } catch (err) {
+    console.error('Admin dashboard initialization failed:', err);
+    showToast('Unable to verify your admin session. Check your connection and sign in again.', 'error');
+  }
 }
 
 // ─── UI Initialization ────────────────────────────────────────────────────────
-function initUI(profile) {
+function renderProfile(profile) {
   const initials = getInitials(profile.full_name);
 
-  // Avatars & names
   ['sidebar-avatar', 'topbar-avatar'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = initials;
@@ -68,7 +76,9 @@ function initUI(profile) {
   document.getElementById('topbar-name').textContent = profile.full_name;
   document.getElementById('dropdown-name').textContent = profile.full_name;
   document.getElementById('dropdown-role').textContent = formatRole(profile.role);
+}
 
+function initUI() {
   // Sidebar toggle
   document.getElementById('sidebar-toggle').addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -190,8 +200,13 @@ function setupModalClose(overlayId, closeId, cancelId) {
 }
 
 async function handleSignOut() {
-  await signOut();
-  window.location.href = '../index.html';
+  try {
+    await signOut();
+  } catch (err) {
+    console.error('Admin sign-out failed:', err);
+  } finally {
+    window.location.href = '../index.html';
+  }
 }
 
 // ─── View Switching ───────────────────────────────────────────────────────────
@@ -853,4 +868,8 @@ async function loadAuditLogs() {
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init, { once: true });
+} else {
+  void init();
+}
