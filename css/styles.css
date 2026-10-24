@@ -679,6 +679,12 @@ textarea.form-control {
 .modal-overlay.active .modal {
   transform: translateY(0) scale(1);
 }
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 .modal-sm { max-width: 380px; }
 .modal-md { max-width: 560px; }
 .modal-lg { max-width: 780px; }

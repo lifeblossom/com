@@ -15,7 +15,7 @@
  * 6. Create Auth user: adminClient.auth.admin.createUser({ email, password, email_confirm: true })
  * 7. Insert profile row with the new auth user's ID
  * 8. If profile insert fails, attempt to delete the auth user (compensating cleanup)
- * 9. Send invitation email or notify admin of account creation
+ * 9. Do not send an invitation email; the active administrator sets the initial password
  * 10. Log to audit_logs (never log passwords or sensitive medical data)
  * 11. Return 201 with { success: true, user_id, staff_id }
  * 12. Return safe error messages: 400 for validation, 403 for unauthorized, 409 for limit exceeded or duplicate, 500 for internal errors
@@ -46,6 +46,7 @@ interface CreateStaffBody {
   staff_id?: string;
   department?: string;
   phone?: string;
+  password?: string;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -141,6 +142,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
     const requestedRole = body.role as StaffRole;
 
+    if (typeof body.password !== 'string' || Array.from(body.password).length < 8) {
+      return errorResponse('Password must be at least 8 characters long', 400);
+    }
+
     const cleanStaffId = body.staff_id?.trim() || null;
     const cleanDepartment = body.department?.trim() || null;
     const cleanPhone = body.phone?.trim() || null;
@@ -195,24 +200,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // 6. Invite the staff member so they set their own password from the email link.
-    const appOrigin = Deno.env.get('APP_ORIGIN');
-    if (!appOrigin) {
-      return errorResponse('Staff invitation is not configured', 500);
-    }
-    const redirectTo = new URL('/index.html', appOrigin).toString();
-    const { data: authData, error: authCreateError } = await adminClient.auth.admin.inviteUserByEmail(
-      normalizedEmail,
-      {
-        redirectTo,
-        data: {
-          full_name: cleanFullName,
-          role: requestedRole,
-          department: cleanDepartment,
-          staff_id: cleanStaffId,
-        },
-      }
-    );
+    // Create a confirmed account with the password supplied by the verified administrator.
+    const { data: authData, error: authCreateError } = await adminClient.auth.admin.createUser({
+      email: normalizedEmail,
+      password: body.password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: cleanFullName,
+        role: requestedRole,
+        department: cleanDepartment,
+        staff_id: cleanStaffId,
+      },
+    });
 
     if (authCreateError || !authData.user) {
       console.error('Auth user creation failed:', authCreateError?.message);
@@ -285,7 +284,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       user_agent: userAgent,
     });
 
-    // Return only safe account information; the password is set by the invitee.
+    // Return only safe account information; never return or log the password.
     return jsonResponse(
       {
         success: true,

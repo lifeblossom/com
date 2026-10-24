@@ -351,7 +351,7 @@
         <h3 id="add-staff-modal-title">Add New Staff Member</h3>
         <button class="btn btn-ghost btn-icon" id="close-add-staff-modal" aria-label="Close dialog">✕</button>
       </div>
-      <form id="add-staff-form" novalidate aria-label="Add staff form">
+      <form id="add-staff-form" class="modal-form" novalidate aria-label="Add staff form">
         <div class="modal-body">
           <div class="form-grid form-grid-2">
             <div class="form-group form-group-full">
@@ -371,7 +371,6 @@
                 <option value="pharmacist">Pharmacist</option>
                 <option value="front_desk">Front Desk</option>
                 <option value="lab_technician">Lab Technician</option>
-                <option value="admin">Admin</option>
               </select>
             </div>
             <div class="form-group">
@@ -386,13 +385,21 @@
               <label class="form-label" for="staff-phone">Phone</label>
               <input class="form-input" type="tel" id="staff-phone" name="phone" placeholder="e.g. 08012345678"/>
             </div>
+            <div class="form-group">
+              <label class="form-label" for="staff-password">Initial Password <span class="required" aria-label="required">*</span></label>
+              <input class="form-input" type="password" id="staff-password" name="password" autocomplete="new-password" minlength="8" required/>
+              <small class="form-note">Use at least 8 characters. Share it securely; no invitation email will be sent.</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="staff-password-confirm">Confirm Password <span class="required" aria-label="required">*</span></label>
+              <input class="form-input" type="password" id="staff-password-confirm" name="password_confirm" autocomplete="new-password" minlength="8" required/>
+            </div>
           </div>
-          <p class="form-note">An invitation link will be emailed so the staff member can set their password.</p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" id="cancel-add-staff">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="submit-add-staff-btn">
-            <span class="btn-text">Create Account</span>
+          <button type="submit" class="btn btn-primary" id="submit-add-staff-btn" aria-label="Create staff account">
+            <span class="btn-text">Create Staff Account</span>
             <span class="btn-loading" style="display:none">Creating…</span>
           </button>
         </div>
@@ -409,7 +416,7 @@
         <h3 id="edit-staff-modal-title">Edit Staff Member</h3>
         <button class="btn btn-ghost btn-icon" id="close-edit-staff-modal" aria-label="Close dialog">✕</button>
       </div>
-      <form id="edit-staff-form" novalidate aria-label="Edit staff form">
+      <form id="edit-staff-form" class="modal-form" novalidate aria-label="Edit staff form">
         <input type="hidden" id="edit-staff-user-id" name="user_id"/>
         <div class="modal-body">
           <div class="form-grid form-grid-2">

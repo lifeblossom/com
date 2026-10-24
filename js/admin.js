@@ -146,10 +146,9 @@ function initUI() {
 
   // Add Staff modal
   setupModalClose('add-staff-modal-overlay', 'close-add-staff-modal', 'cancel-add-staff');
-  document.getElementById('add-staff-form')?.addEventListener('submit', e => { e.preventDefault(); handleAddStaff(); });
-  document.getElementById('submit-add-staff-btn')?.addEventListener('click', e => {
+  document.getElementById('add-staff-form')?.addEventListener('submit', e => {
     e.preventDefault();
-    handleAddStaff();
+    void handleAddStaff();
   });
 
   // Edit Staff modal
@@ -539,9 +538,19 @@ async function handleAddStaff() {
   const staff_id = form.querySelector('[name="staff_id"]')?.value.trim();
   const department = form.querySelector('[name="department"]')?.value.trim();
   const phone = form.querySelector('[name="phone"]')?.value.trim();
+  const password = form.querySelector('[name="password"]')?.value || '';
+  const passwordConfirm = form.querySelector('[name="password_confirm"]')?.value || '';
 
   if (!full_name || !email || !role) {
     showToast('Please fill in all required fields', 'warning');
+    return;
+  }
+  if (Array.from(password).length < 8) {
+    showToast('Password must be at least 8 characters long', 'warning');
+    return;
+  }
+  if (password !== passwordConfirm) {
+    showToast('The passwords do not match', 'warning');
     return;
   }
 
@@ -552,24 +561,30 @@ async function handleAddStaff() {
   if (btnText) btnText.style.display = 'none';
   if (btnLoading) btnLoading.style.display = 'inline';
 
-  const { data, error } = await callEdgeFunction('admin-create-staff', {
-    full_name, email, role, staff_id, department, phone,
-  });
+  try {
+    const { error } = await callEdgeFunction('admin-create-staff', {
+      full_name, email, role, staff_id, department, phone, password,
+    });
 
-  if (btn) btn.disabled = false;
-  if (btnText) btnText.style.display = 'inline';
-  if (btnLoading) btnLoading.style.display = 'none';
+    if (error) {
+      showToast(typeof error === 'string' ? error : 'Failed to create staff account', 'error');
+      return;
+    }
 
-  if (error) {
-    showToast(typeof error === 'string' ? error : 'Failed to create staff account', 'error');
-    return;
+    showToast('Staff account created successfully. No invitation email was sent.', 'success');
+    document.getElementById('add-staff-modal-overlay')?.classList.remove('active');
+    form.reset();
+    viewLoaded.staff = false;
+    await loadStaff();
+    viewLoaded.staff = true;
+  } catch (err) {
+    console.error('Staff account creation failed:', err);
+    showToast('Unable to create the staff account. Please try again.', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.style.display = 'inline';
+    if (btnLoading) btnLoading.style.display = 'none';
   }
-
-  showToast('Staff account created successfully', 'success');
-  document.getElementById('add-staff-modal-overlay')?.classList.remove('active');
-  viewLoaded.staff = false;
-  await loadStaff();
-  viewLoaded.staff = true;
 }
 
 // ─── Edit Staff Modal ─────────────────────────────────────────────────────────

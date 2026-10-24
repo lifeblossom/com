@@ -26,7 +26,7 @@ Set `APP_ORIGIN` to the exact HTTPS origin that hosts the frontend (scheme and h
 In Supabase Auth settings:
 
 - Add the production sign-in URL and the exact `index.html` password-recovery callback URL to the redirect allowlist.
-- Configure SMTP for staff invitations and password recovery; verify delivery and recovery links with a test account.
+- Configure SMTP for password recovery and verify recovery links with a test account. Staff accounts created in the admin dashboard use an initial password set by the administrator and do not send an invitation email; share that password securely.
 - Disable public account registration if staff accounts are provisioned only by administrators.
 - Set reasonable authentication and recovery rate limits.
 
