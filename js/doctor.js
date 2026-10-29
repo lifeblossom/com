@@ -24,18 +24,9 @@ let currentProfile = null;
 let currentUser = null;
 let currentView = 'overview';
 let chartContext = null;   // { patient, transfer, encounterId }
-let chartBackView = 'search';
-let inboxFilter = 'active';
+let chartBackView = 'lookup';
 let labFilter = 'all';
 let rxFilter = 'all';
-
-// Shared patient search state
-let docSearchPage = 1;
-let docSearchQuery = '';
-let docSelectedPatientId = null;
-let docPatientFileComponent = null;
-
-const DOC_PAGE_SIZE = 20;
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
@@ -279,18 +270,17 @@ function switchView(view) {
   if (navItem) navItem.classList.add('active');
 
   const titles = {
-    overview: 'Overview', chart: 'Patient Chart',
-    lookup: 'Patient Lookup', mypatients: 'My Patients',
-    laborders: 'Lab Orders', prescriptions: 'Prescriptions', sendfile: 'Send File',
-    search: 'Patient Search', 'patient-file': 'Patient File',
+    overview: 'Overview',
+    lookup: 'Patient Lookup',
+    laborders: 'Lab Orders',
+    prescriptions: 'Prescriptions',
+    chart: 'Patient Chart',
   };
   document.getElementById('page-title').textContent = titles[view] || 'Dashboard';
 
   // Lazy load on first switch
-  if (view === 'mypatients') loadMyPatients();
   if (view === 'laborders') loadLabOrders();
   if (view === 'prescriptions') loadPrescriptions();
-  if (view === 'search' && !docSearchQuery) doDoctorPatientSearch();
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
@@ -447,7 +437,7 @@ function bindInboxItemActions(container, data) {
 }
 
 // ─── Patient Chart ────────────────────────────────────────────────────────────
-async function loadPatientChart(patient, transfer, fromView = 'search') {
+async function loadPatientChart(patient, transfer, fromView = 'lookup') {
   chartBackView = fromView;
   chartContext = { patient, transfer, encounterId: transfer?.encounter_id };
   switchView('chart');
@@ -1074,7 +1064,10 @@ async function submitLabOrder() {
   rows.forEach(row => {
     const name = row.querySelector('[data-field="test_name"]').value.trim();
     if (!name) { valid = false; return; }
-    items.push({ test_name: name, test_code: row.querySelector('[data-field="test_code"]').value.trim() || null });
+    items.push({
+      test_name: name,
+      test_code: row.querySelector('[data-field="test_code"]').value.trim() || null
+    });
   });
   if (!valid || items.length === 0) { showToast('Please add at least one valid test item', 'warning'); return; }
 
@@ -1082,28 +1075,53 @@ async function submitLabOrder() {
   btn.disabled = true;
   btn.textContent = 'Submitting...';
 
-  const { data: user } = await supabase.auth.getUser();
-  const { data: order, error } = await supabase.from('laboratory_orders').insert([{
-    patient_id: patientId,
-    encounter_id: chartContext?.encounterId || null,
-    ordering_doctor_id: user.user.id,
-    clinical_indication: indication,
-    priority: document.getElementById('lab-priority').value,
-    status: 'pending',
-  }]).select().single();
+  try {
+    const { data: user } = await supabase.auth.getUser();
+    const { data: order, error } = await supabase.from('laboratory_orders').insert([{
+      patient_id: patientId,
+      encounter_id: chartContext?.encounterId || null,
+      ordering_doctor_id: user.user.id,
+      clinical_indication: indication,
+      priority: document.getElementById('lab-priority').value,
+      status: 'pending',
+    }]).select().single();
 
-  if (error) { showToast(error.message, 'error'); btn.disabled = false; btn.textContent = 'Submit Order'; return; }
+    if (error) {
+      console.error('Failed to create laboratory order:', error);
+      showToast(error.message || 'Failed to create laboratory order', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Submit Order';
+      return;
+    }
 
-  const itemsToInsert = items.map(i => ({ ...i, order_id: order.id, status: 'pending' }));
-  const { error: itemsError } = await supabase.from('laboratory_order_items').insert(itemsToInsert);
-  if (itemsError) { showToast(itemsError.message, 'error'); btn.disabled = false; btn.textContent = 'Submit Order'; return; }
+    // laboratory_order_items only has columns: id, order_id, test_name, test_code, notes, created_at
+    const itemsToInsert = items.map(i => ({
+      order_id: order.id,
+      test_name: i.test_name,
+      test_code: i.test_code || null,
+    }));
 
-  showToast('Lab order submitted', 'success');
-  document.getElementById('lab-modal-overlay').classList.remove('active');
-  btn.disabled = false;
-  btn.textContent = 'Submit Order';
-  loadLabOrders();
-  if (currentView === 'chart') loadChartLabOrders(patientId);
+    const { error: itemsError } = await supabase.from('laboratory_order_items').insert(itemsToInsert);
+    if (itemsError) {
+      console.error('Failed to insert laboratory order items:', itemsError);
+      showToast(`Order created, but tests failed: ${itemsError.message}`, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Submit Order';
+      return;
+    }
+
+    showToast('Lab order submitted successfully', 'success');
+    document.getElementById('lab-modal-overlay').classList.remove('active');
+    btn.disabled = false;
+    btn.textContent = 'Submit Order';
+    loadLabOrders();
+    if (currentView === 'chart') loadChartLabOrders(patientId);
+  } catch (err) {
+    console.error('Unexpected error submitting lab order:', err);
+    showToast(err.message || 'Failed to submit lab order', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Submit Order';
+  }
 }
 
 // ─── Prescriptions ────────────────────────────────────────────────────────────
@@ -1178,20 +1196,20 @@ function addRxItemRow() {
     <div class="form-row">
       <div class="form-group" style="flex:2">
         <label class="form-label" style="font-size:.75rem">Medicine Name *</label>
-        <input type="text" class="form-control" data-field="medicine_name" placeholder="e.g. Amoxicillin"/>
+        <input type="text" class="form-control" data-field="medicine_name" placeholder="e.g. Amoxicillin" required/>
       </div>
       <div class="form-group">
         <label class="form-label" style="font-size:.75rem">Strength</label>
         <input type="text" class="form-control" data-field="strength" placeholder="e.g. 500mg"/>
       </div>
       <div class="form-group">
-        <label class="form-label" style="font-size:.75rem">Dosage</label>
-        <input type="text" class="form-control" data-field="dosage" placeholder="e.g. 1 tablet"/>
+        <label class="form-label" style="font-size:.75rem">Dosage *</label>
+        <input type="text" class="form-control" data-field="dosage" placeholder="e.g. 1 tablet" required/>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label" style="font-size:.75rem">Route</label>
+        <label class="form-label" style="font-size:.75rem">Route *</label>
         <select class="form-control" data-field="route">
           <option value="oral">Oral</option>
           <option value="iv">IV</option>
@@ -1202,16 +1220,16 @@ function addRxItemRow() {
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label" style="font-size:.75rem">Frequency</label>
-        <input type="text" class="form-control" data-field="frequency" placeholder="e.g. TDS"/>
+        <label class="form-label" style="font-size:.75rem">Frequency *</label>
+        <input type="text" class="form-control" data-field="frequency" placeholder="e.g. TDS" required/>
       </div>
       <div class="form-group">
         <label class="form-label" style="font-size:.75rem">Duration</label>
         <input type="text" class="form-control" data-field="duration" placeholder="e.g. 7 days"/>
       </div>
       <div class="form-group">
-        <label class="form-label" style="font-size:.75rem">Qty</label>
-        <input type="number" class="form-control" data-field="quantity" placeholder="21"/>
+        <label class="form-label" style="font-size:.75rem">Qty *</label>
+        <input type="number" min="1" class="form-control" data-field="quantity" placeholder="21" required/>
       </div>
     </div>
     <div class="form-group">
@@ -1231,48 +1249,102 @@ async function submitPrescription() {
   if (rows.length === 0) { showToast('Please add at least one medicine', 'warning'); return; }
 
   const items = [];
-  let valid = true;
-  rows.forEach(row => {
+  let validationError = null;
+
+  rows.forEach((row, idx) => {
+    if (validationError) return;
     const name = row.querySelector('[data-field="medicine_name"]').value.trim();
-    if (!name) { valid = false; return; }
+    const dosage = row.querySelector('[data-field="dosage"]').value.trim();
+    const route = row.querySelector('[data-field="route"]').value;
+    const frequency = row.querySelector('[data-field="frequency"]').value.trim();
+    const duration = row.querySelector('[data-field="duration"]').value.trim();
+    const qtyVal = parseInt(row.querySelector('[data-field="quantity"]').value);
+    const strength = row.querySelector('[data-field="strength"]').value.trim();
+    const instructions = row.querySelector('[data-field="instructions"]').value.trim();
+
+    if (!name) {
+      validationError = `Medicine #${idx + 1}: Name is required.`;
+      return;
+    }
+    if (!dosage) {
+      validationError = `Medicine #${idx + 1} (${name}): Dosage is required (e.g. 1 tablet, 5ml).`;
+      return;
+    }
+    if (!frequency) {
+      validationError = `Medicine #${idx + 1} (${name}): Frequency is required (e.g. TDS, BD, Once daily).`;
+      return;
+    }
+    if (!qtyVal || qtyVal <= 0 || isNaN(qtyVal)) {
+      validationError = `Medicine #${idx + 1} (${name}): Quantity must be a positive number greater than 0.`;
+      return;
+    }
+
     items.push({
       medicine_name: name,
-      strength: row.querySelector('[data-field="strength"]').value.trim() || null,
-      dosage: row.querySelector('[data-field="dosage"]').value.trim() || null,
-      route: row.querySelector('[data-field="route"]').value,
-      frequency: row.querySelector('[data-field="frequency"]').value.trim() || null,
-      duration: row.querySelector('[data-field="duration"]').value.trim() || null,
-      quantity: parseInt(row.querySelector('[data-field="quantity"]').value) || null,
-      instructions: row.querySelector('[data-field="instructions"]').value.trim() || null,
+      strength: strength || null,
+      dosage: dosage,
+      route: route || 'oral',
+      frequency: frequency,
+      duration: duration || null,
+      quantity: qtyVal,
+      instructions: instructions || null,
     });
   });
-  if (!valid || items.length === 0) { showToast('Please fill in all medicine names', 'warning'); return; }
+
+  if (validationError) {
+    showToast(validationError, 'warning');
+    return;
+  }
+  if (items.length === 0) {
+    showToast('Please add at least one medicine', 'warning');
+    return;
+  }
 
   const btn = document.getElementById('rx-modal-save');
   btn.disabled = true;
   btn.textContent = 'Submitting...';
 
-  const { data: user } = await supabase.auth.getUser();
-  const { data: rx, error } = await supabase.from('prescriptions').insert([{
-    patient_id: patientId,
-    encounter_id: chartContext?.encounterId || null,
-    prescribing_doctor_id: user.user.id,
-    notes: document.getElementById('rx-notes').value.trim() || null,
-    status: 'active',
-  }]).select().single();
+  try {
+    const { data: user } = await supabase.auth.getUser();
+    const { data: rx, error } = await supabase.from('prescriptions').insert([{
+      patient_id: patientId,
+      encounter_id: chartContext?.encounterId || null,
+      prescribing_doctor_id: user.user.id,
+      notes: document.getElementById('rx-notes').value.trim() || null,
+      status: 'active',
+    }]).select().single();
 
-  if (error) { showToast(error.message, 'error'); btn.disabled = false; btn.textContent = 'Submit Prescription'; return; }
+    if (error) {
+      console.error('Failed to create prescription parent record:', error);
+      showToast(error.message || 'Failed to create prescription', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Submit Prescription';
+      return;
+    }
 
-  const itemsToInsert = items.map(i => ({ ...i, prescription_id: rx.id }));
-  const { error: itemsError } = await supabase.from('prescription_items').insert(itemsToInsert);
-  if (itemsError) { showToast(itemsError.message, 'error'); btn.disabled = false; btn.textContent = 'Submit Prescription'; return; }
+    const itemsToInsert = items.map(i => ({ ...i, prescription_id: rx.id }));
+    const { error: itemsError } = await supabase.from('prescription_items').insert(itemsToInsert);
 
-  showToast('Prescription submitted', 'success');
-  document.getElementById('rx-modal-overlay').classList.remove('active');
-  btn.disabled = false;
-  btn.textContent = 'Submit Prescription';
-  loadPrescriptions();
-  if (currentView === 'chart') loadChartPrescriptions(patientId);
+    if (itemsError) {
+      console.error('Failed to insert prescription items:', itemsError);
+      showToast(`Prescription created, but medication items failed: ${itemsError.message}`, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Submit Prescription';
+      return;
+    }
+
+    showToast('Prescription submitted successfully', 'success');
+    document.getElementById('rx-modal-overlay').classList.remove('active');
+    btn.disabled = false;
+    btn.textContent = 'Submit Prescription';
+    loadPrescriptions();
+    if (currentView === 'chart') loadChartPrescriptions(patientId);
+  } catch (err) {
+    console.error('Unexpected error in submitPrescription:', err);
+    showToast(err.message || 'An unexpected error occurred submitting prescription', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Submit Prescription';
+  }
 }
 
 // ─── Send File ────────────────────────────────────────────────────────────────
@@ -1413,104 +1485,6 @@ async function saveVitals() {
   document.getElementById('vitals-modal-overlay').classList.remove('active');
   loadChartVitals(patient.id, null);
   loadChartSummary(patient);
-}
-
-// ─── Shared Patient Search (new workflow) ─────────────────────────────────────
-async function doDoctorPatientSearch() {
-  const container = document.getElementById('doc-search-results');
-  if (!container) return;
-  container.innerHTML = '<div class="loading-state">Searching…</div>';
-
-  const q = docSearchQuery;
-  const offset = (docSearchPage - 1) * DOC_PAGE_SIZE;
-
-  const { data, error, count } = await supabase
-    .from('patients')
-    .select('id, hospital_number, first_name, middle_name, last_name, date_of_birth, sex, phone, created_at', { count: 'exact' })
-    .or(q
-      ? `hospital_number.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%`
-      : 'id.neq.00000000-0000-0000-0000-000000000000'
-    )
-    .order('created_at', { ascending: false })
-    .range(offset, offset + DOC_PAGE_SIZE - 1);
-
-  if (error) {
-    container.innerHTML = `<div class="error-state">Search failed: ${escapeHtml(error.message)}</div>`;
-    return;
-  }
-
-  if (!data?.length) {
-    container.innerHTML = '<div class="empty-state">No patients found. Check the spelling or try a different search term.</div>';
-    const pagEl = document.getElementById('doc-search-pagination');
-    if (pagEl) pagEl.innerHTML = '';
-    return;
-  }
-
-  container.innerHTML = data.map(patient => {
-    const name = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ');
-    const age  = patient.date_of_birth ? `${calculateAge(patient.date_of_birth)} yrs` : '—';
-    return `
-      <div class="list-item">
-        <div class="list-item-body">
-          <div class="list-item-title">${escapeHtml(name)}</div>
-          <div class="list-item-meta">
-            🏥 ${escapeHtml(patient.hospital_number)} ·
-            👤 ${escapeHtml(patient.sex || '—')}, ${age} ·
-            📞 ${escapeHtml(patient.phone || '—')} ·
-            Registered: ${formatDate(patient.created_at, 'date')}
-          </div>
-        </div>
-        <div class="list-item-aside">
-          <button class="btn btn-primary btn-sm doc-open-patient-btn"
-                  data-patient-id="${escapeHtml(patient.id)}">Open File</button>
-        </div>
-      </div>`;
-  }).join('');
-
-  container.querySelectorAll('.doc-open-patient-btn').forEach(btn => {
-    btn.addEventListener('click', () => doctorOpenPatientFile(btn.dataset.patientId));
-  });
-
-  renderDocSearchPagination(count);
-}
-
-function renderDocSearchPagination(totalCount) {
-  const pagEl = document.getElementById('doc-search-pagination');
-  if (!pagEl) return;
-  if (!totalCount || totalCount <= DOC_PAGE_SIZE) { pagEl.innerHTML = ''; return; }
-  const totalPages = Math.ceil(totalCount / DOC_PAGE_SIZE);
-  pagEl.innerHTML = `
-    <div class="pagination">
-      <button class="btn btn-sm btn-secondary" ${docSearchPage <= 1 ? 'disabled' : ''} id="doc-pag-prev">← Prev</button>
-      <span>Page ${docSearchPage} of ${totalPages}</span>
-      <button class="btn btn-sm btn-secondary" ${docSearchPage >= totalPages ? 'disabled' : ''} id="doc-pag-next">Next →</button>
-    </div>`;
-  document.getElementById('doc-pag-prev')?.addEventListener('click', () => { docSearchPage--; doDoctorPatientSearch(); });
-  document.getElementById('doc-pag-next')?.addEventListener('click', () => { docSearchPage++; doDoctorPatientSearch(); });
-}
-
-async function doctorOpenPatientFile(patientId) {
-  docSelectedPatientId = patientId;
-
-  // Show badge on nav item
-  const badge = document.getElementById('doctor-file-badge');
-  if (badge) badge.style.display = '';
-
-  // Initialise component lazily (if currentUser was not ready during initUI)
-  if (!docPatientFileComponent) {
-    const container = document.getElementById('doc-patient-file-container');
-    if (container) {
-      const { data: { user } } = await supabase.auth.getUser();
-      docPatientFileComponent = new PatientFile(container, {
-        role: currentProfile.role,
-        userId: user?.id,
-        userName: currentProfile.full_name,
-      });
-    }
-  }
-
-  switchView('patient-file');
-  await docPatientFileComponent?.load(patientId);
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────

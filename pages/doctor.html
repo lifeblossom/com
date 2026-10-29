@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Doctor Dashboard — Life Blossom Care and Cure Hospital</title>
   <meta name="robots" content="noindex, nofollow"/>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://yealxvgednecmwnehfrs.supabase.co wss://yealxvgednecmwnehfrs.supabase.co https://*.supabase.co wss://*.supabase.co http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://yealxvgednecmwnehfrs.supabase.co wss://yealxvgednecmwnehfrs.supabase.co https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"/>
   <link rel="icon" type="image/png" href="../images/logo.png"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap"/>
@@ -35,13 +35,9 @@
     </div>
     <nav class="sidebar-nav">
       <a class="nav-item active" data-view="overview" href="#"><span class="nav-item-icon">📊</span><span class="nav-item-label">Overview</span></a>
-      <a class="nav-item" data-view="search" href="#"><span class="nav-item-icon">🔍</span><span class="nav-item-label">Patient Search</span></a>
-      <a class="nav-item" data-view="patient-file" href="#"><span class="nav-item-icon">📋</span><span class="nav-item-label">Patient File</span><span class="nav-badge" id="doctor-file-badge" style="display:none">1</span></a>
       <a class="nav-item" data-view="lookup" href="#"><span class="nav-item-icon">🔎</span><span class="nav-item-label">Patient Lookup</span></a>
-      <a class="nav-item" data-view="mypatients" href="#"><span class="nav-item-icon">👥</span><span class="nav-item-label">My Patients</span></a>
       <a class="nav-item" data-view="laborders" href="#"><span class="nav-item-icon">🧪</span><span class="nav-item-label">Lab Orders</span></a>
       <a class="nav-item" data-view="prescriptions" href="#"><span class="nav-item-icon">💊</span><span class="nav-item-label">Prescriptions</span></a>
-      <a class="nav-item" data-view="sendfile" href="#"><span class="nav-item-icon">📁</span><span class="nav-item-label">Send File</span></a>
     </nav>
     <div class="sidebar-footer">
       <button class="nav-item" id="sign-out-btn"><span class="nav-item-icon">🚪</span><span class="nav-item-label">Sign Out</span></button>
@@ -108,7 +104,7 @@
         </div>
 
         <div class="quick-actions-grid">
-          <button class="quick-action-btn" data-nav="search"><span>🔍</span> Search Patient</button>
+          <button class="quick-action-btn" data-nav="lookup"><span>🔍</span> Search Patient</button>
           <button class="quick-action-btn" id="qa-new-lab"><span>🧪</span> New Lab Order</button>
           <button class="quick-action-btn" id="qa-new-rx"><span>💊</span> New Prescription</button>
         </div>
@@ -306,16 +302,6 @@
         </div>
       </section>
 
-      <!-- ═══════════════════ MY PATIENTS VIEW ═══════════════════ -->
-      <section id="view-mypatients" class="view-section" style="display:none">
-        <div class="section-card">
-          <div class="section-card-header"><h2 class="section-card-title">My Active Patients</h2></div>
-          <div id="mypatients-list" class="list-container">
-            <div class="loading-state">Loading...</div>
-          </div>
-        </div>
-      </section>
-
       <!-- ═══════════════════ LAB ORDERS VIEW ═══════════════════ -->
       <section id="view-laborders" class="view-section" style="display:none">
         <div class="view-toolbar">
@@ -345,14 +331,6 @@
         </div>
         <div id="prescriptions-list" class="list-container">
           <div class="loading-state">Loading...</div>
-        </div>
-      </section>
-
-      <!-- ═══════════════════ SEND FILE VIEW ═══════════════════ -->
-      <section id="view-sendfile" class="view-section" style="display:none">
-        <div class="section-card">
-          <div class="section-card-header"><h2>Send Patient File</h2></div>
-          <p class="text-muted" style="padding:1rem">Search for a patient using Patient Search or Patient Lookup, then click "Send File" on their chart.</p>
         </div>
       </section>
 
@@ -535,42 +513,6 @@
     </div>
   </div>
 </div>
-
-<!-- PATIENT SEARCH VIEW -->
-<section id="view-search" class="view-section" style="display:none">
-  <div class="view-header">
-    <h2>Patient Search</h2>
-    <p class="view-subtitle">Search by name, hospital number, or phone. Doctors can view and consult any registered patient.</p>
-  </div>
-  <div class="search-bar-container">
-    <input type="search" id="doc-patient-search" class="search-input"
-           placeholder="Search name, hospital number or phone…"
-           autocomplete="off" maxlength="100"/>
-    <div class="search-hint">Results appear as you type</div>
-  </div>
-  <div id="doc-search-results" class="list-container">
-    <div class="empty-state">Enter a name, hospital number, or phone number to search.</div>
-  </div>
-  <div id="doc-search-pagination"></div>
-  <div class="no-patient-note" style="margin-top:1rem;padding:1rem;background:#fff8e1;border-radius:8px;border-left:4px solid #ffc107;">
-    <strong>⚠️ Patient not found?</strong><br/>
-    If a patient is not in the system, please contact the <strong>Front Desk</strong> to register them. Doctors cannot create new patient records.
-  </div>
-</section>
-
-<!-- PATIENT FILE VIEW -->
-<section id="view-patient-file" class="view-section" style="display:none">
-  <div class="view-header">
-    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
-      <h2>Patient File</h2>
-      <button class="btn btn-secondary btn-sm" id="doc-back-to-search-btn">← Back to Search</button>
-    </div>
-    <p class="view-subtitle">Shared patient record — you can add consultations, lab orders, and prescriptions.</p>
-  </div>
-  <div id="doc-patient-file-container">
-    <div class="empty-state">No patient selected. Use Patient Search.</div>
-  </div>
-</section>
 
 <script type="module" src="../js/doctor.js"></script>
 </body>
