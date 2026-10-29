@@ -37,7 +37,6 @@
       <a class="nav-item active" data-view="overview" href="#"><span class="nav-item-icon">📊</span><span class="nav-item-label">Overview</span></a>
       <a class="nav-item" data-view="search" href="#"><span class="nav-item-icon">🔍</span><span class="nav-item-label">Patient Search</span></a>
       <a class="nav-item" data-view="patient-file" href="#"><span class="nav-item-icon">📋</span><span class="nav-item-label">Patient File</span><span class="nav-badge" id="doctor-file-badge" style="display:none">1</span></a>
-      <a class="nav-item" data-view="inbox" href="#"><span class="nav-item-icon">📥</span><span class="nav-item-label">Inbox</span><span class="nav-badge" id="sidebar-inbox-badge" style="display:none">0</span></a>
       <a class="nav-item" data-view="lookup" href="#"><span class="nav-item-icon">🔎</span><span class="nav-item-label">Patient Lookup</span></a>
       <a class="nav-item" data-view="mypatients" href="#"><span class="nav-item-icon">👥</span><span class="nav-item-label">My Patients</span></a>
       <a class="nav-item" data-view="laborders" href="#"><span class="nav-item-icon">🧪</span><span class="nav-item-label">Lab Orders</span></a>
@@ -86,13 +85,6 @@
       <section id="view-overview" class="view-section">
         <div class="stats-grid" id="overview-stats">
           <div class="stat-card">
-            <div class="stat-card-icon">📥</div>
-            <div class="stat-card-body">
-              <div class="stat-card-value" id="stat-inbox">—</div>
-              <div class="stat-card-label">Pending Inbox</div>
-            </div>
-          </div>
-          <div class="stat-card">
             <div class="stat-card-icon">👤</div>
             <div class="stat-card-body">
               <div class="stat-card-value" id="stat-patients">—</div>
@@ -116,33 +108,9 @@
         </div>
 
         <div class="quick-actions-grid">
-          <button class="quick-action-btn" data-nav="inbox"><span>📥</span> Open Inbox</button>
-          <button class="quick-action-btn" data-nav="lookup"><span>🔍</span> Search Patient</button>
+          <button class="quick-action-btn" data-nav="search"><span>🔍</span> Search Patient</button>
           <button class="quick-action-btn" id="qa-new-lab"><span>🧪</span> New Lab Order</button>
           <button class="quick-action-btn" id="qa-new-rx"><span>💊</span> New Prescription</button>
-        </div>
-
-        <div class="section-card">
-          <div class="section-card-header">
-            <h2 class="section-card-title">Recent Inbox Items</h2>
-            <button class="btn btn-ghost btn-sm" data-nav="inbox">View All</button>
-          </div>
-          <div id="overview-inbox-list" class="list-container">
-            <div class="loading-state">Loading...</div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ═══════════════════ INBOX VIEW ═══════════════════ -->
-      <section id="view-inbox" class="view-section" style="display:none">
-        <div class="filter-chips" id="inbox-filters">
-          <button class="chip active" data-filter="active">Active</button>
-          <button class="chip" data-filter="all">All</button>
-          <button class="chip" data-filter="completed">Completed</button>
-          <button class="chip" data-filter="returned">Returned</button>
-        </div>
-        <div id="inbox-list" class="list-container">
-          <div class="loading-state">Loading inbox...</div>
         </div>
       </section>
 
@@ -185,6 +153,15 @@
           <div class="section-card">
             <div class="section-card-header"><h3>Patient Demographics</h3></div>
             <div class="demographics-grid" id="demographics-grid"></div>
+          </div>
+          <div class="section-card" style="margin-top:1rem">
+            <div class="section-card-header" style="display:flex;justify-content:space-between;align-items:center;">
+              <h3>Latest Vital Signs</h3>
+              <button class="btn btn-ghost btn-xs" id="summary-view-all-vitals-btn">View All Vitals &rarr;</button>
+            </div>
+            <div id="summary-latest-vitals">
+              <div class="loading-state">Loading latest vitals...</div>
+            </div>
           </div>
           <div class="section-card" style="margin-top:1rem">
             <div class="section-card-header"><h3>Encounter History</h3></div>
@@ -375,7 +352,7 @@
       <section id="view-sendfile" class="view-section" style="display:none">
         <div class="section-card">
           <div class="section-card-header"><h2>Send Patient File</h2></div>
-          <p class="text-muted" style="padding:1rem">Select a patient from your inbox or use Patient Lookup, then click "Send File" on their chart.</p>
+          <p class="text-muted" style="padding:1rem">Search for a patient using Patient Search or Patient Lookup, then click "Send File" on their chart.</p>
         </div>
       </section>
 

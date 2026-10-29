@@ -100,10 +100,10 @@ function initUI(profile) {
   });
 
   // ── Overview quick actions ──
-  document.getElementById('qa-register').addEventListener('click', () => switchView('register'));
-  document.getElementById('qa-search').addEventListener('click', () => switchView('search'));
-  document.getElementById('qa-inbox').addEventListener('click', () => switchView('transfers'));
-  document.getElementById('qa-encounter').addEventListener('click', openEncounterModal);
+  document.getElementById('qa-register')?.addEventListener('click', () => switchView('register'));
+  document.getElementById('qa-search')?.addEventListener('click', () => switchView('search'));
+  document.getElementById('qa-inbox')?.addEventListener('click', () => switchView('transfers'));
+  document.getElementById('qa-encounter')?.addEventListener('click', openEncounterModal);
 
   // Overview buttons
   document.getElementById('refresh-overview-btn').addEventListener('click', loadOverview);

@@ -222,7 +222,6 @@ function switchView(view) {
 
   const titles = {
     overview:      'Overview',
-    inbox:         'Inbox',
     prescriptions: 'Prescriptions Queue',
     inventory:     'Medicine Inventory',
     dispense:      'Dispense Medication',
@@ -233,7 +232,6 @@ function switchView(view) {
   document.getElementById('page-title').textContent = titles[view] || 'Pharmacy';
 
   // Lazy-load on first switch (reload on every subsequent visit too)
-  if (view === 'inbox')         loadInbox();
   if (view === 'prescriptions') loadPrescriptions();
   if (view === 'inventory')     loadInventory();
   if (view === 'movements')     loadMovements();

@@ -24,7 +24,7 @@ let currentProfile = null;
 let currentUser = null;
 let currentView = 'overview';
 let chartContext = null;   // { patient, transfer, encounterId }
-let chartBackView = 'inbox';
+let chartBackView = 'search';
 let inboxFilter = 'active';
 let labFilter = 'all';
 let rxFilter = 'all';
@@ -279,7 +279,7 @@ function switchView(view) {
   if (navItem) navItem.classList.add('active');
 
   const titles = {
-    overview: 'Overview', inbox: 'Inbox', chart: 'Patient Chart',
+    overview: 'Overview', chart: 'Patient Chart',
     lookup: 'Patient Lookup', mypatients: 'My Patients',
     laborders: 'Lab Orders', prescriptions: 'Prescriptions', sendfile: 'Send File',
     search: 'Patient Search', 'patient-file': 'Patient File',
@@ -287,7 +287,6 @@ function switchView(view) {
   document.getElementById('page-title').textContent = titles[view] || 'Dashboard';
 
   // Lazy load on first switch
-  if (view === 'inbox') loadInbox();
   if (view === 'mypatients') loadMyPatients();
   if (view === 'laborders') loadLabOrders();
   if (view === 'prescriptions') loadPrescriptions();
@@ -342,20 +341,26 @@ async function loadOverview() {
   ]);
 
   const inbox = inboxRes.data || [];
-  document.getElementById('stat-inbox').textContent = inbox.length;
-  document.getElementById('stat-patients').textContent = new Set(inbox.map(t => t.patient?.id)).size;
-  document.getElementById('stat-labs').textContent = labRes.count || 0;
-  document.getElementById('stat-rx').textContent = rxRes.count || 0;
+  const statInbox = document.getElementById('stat-inbox');
+  if (statInbox) statInbox.textContent = inbox.length;
+  const statPatients = document.getElementById('stat-patients');
+  if (statPatients) statPatients.textContent = new Set(inbox.map(t => t.patient?.id)).size;
+  const statLabs = document.getElementById('stat-labs');
+  if (statLabs) statLabs.textContent = labRes.count || 0;
+  const statRx = document.getElementById('stat-rx');
+  if (statRx) statRx.textContent = rxRes.count || 0;
 
-  // Recent inbox items
+  // Recent inbox items (if present)
   const container = document.getElementById('overview-inbox-list');
-  const recent = inbox.slice(0, 5);
-  if (recent.length === 0) {
-    container.innerHTML = '<div class="empty-state">No pending inbox items.</div>';
-    return;
+  if (container) {
+    const recent = inbox.slice(0, 5);
+    if (recent.length === 0) {
+      container.innerHTML = '<div class="empty-state">No pending inbox items.</div>';
+    } else {
+      container.innerHTML = recent.map(t => renderInboxItem(t)).join('');
+      bindInboxItemActions(container, recent);
+    }
   }
-  container.innerHTML = recent.map(t => renderInboxItem(t)).join('');
-  bindInboxItemActions(container, recent);
 }
 
 // ─── Inbox ────────────────────────────────────────────────────────────────────
@@ -442,7 +447,7 @@ function bindInboxItemActions(container, data) {
 }
 
 // ─── Patient Chart ────────────────────────────────────────────────────────────
-async function loadPatientChart(patient, transfer, fromView = 'inbox') {
+async function loadPatientChart(patient, transfer, fromView = 'search') {
   chartBackView = fromView;
   chartContext = { patient, transfer, encounterId: transfer?.encounter_id };
   switchView('chart');
@@ -611,51 +616,100 @@ async function loadChartSummary(patient) {
     </div>
   `).join('');
 
+  // Load Latest Vitals in Summary
+  const summaryVitalsEl = document.getElementById('summary-latest-vitals');
+  if (summaryVitalsEl) {
+    summaryVitalsEl.innerHTML = '<div class="loading-state">Loading latest vitals...</div>';
+    const { data: vitalsData, error: vitalsError } = await getPatientVitals(patient.id, null);
+    if (vitalsError) {
+      summaryVitalsEl.innerHTML = `<div class="error-state" style="padding:.75rem;font-size:.85rem;color:var(--text-danger)">Unable to load vitals: ${escapeHtml(vitalsError.message || 'Check permissions')}</div>`;
+    } else if (!vitalsData || vitalsData.length === 0) {
+      summaryVitalsEl.innerHTML = '<div class="empty-state" style="padding:1rem">No vitals recorded yet.</div>';
+    } else {
+      const v = vitalsData[0];
+      const spo2Val = v.oxygen_saturation ?? v.spo2;
+      const bpVal = (v.bp_systolic && v.bp_diastolic) ? `${v.bp_systolic}/${v.bp_diastolic}` : null;
+      summaryVitalsEl.innerHTML = `
+        <div style="padding:0.75rem 1rem;">
+          <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem;">
+            Recorded ${formatDate(v.created_at, 'datetime')} by ${escapeHtml(v.recorded_by_profile?.full_name || 'Nurse/Staff')}${v.recorded_by_profile?.role ? ` (${escapeHtml(v.recorded_by_profile.role)})` : ''}
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:0.75rem;">
+            ${bpVal ? `<div class="vital-card" style="padding:.5rem .75rem"><div class="vital-card-label">BP</div><div class="vital-card-value">${escapeHtml(bpVal)} <small style="font-size:.7rem">mmHg</small></div></div>` : ''}
+            ${v.pulse_rate ? `<div class="vital-card" style="padding:.5rem .75rem"><div class="vital-card-label">Pulse</div><div class="vital-card-value">${escapeHtml(String(v.pulse_rate))} <small style="font-size:.7rem">bpm</small></div></div>` : ''}
+            ${v.temperature ? `<div class="vital-card" style="padding:.5rem .75rem"><div class="vital-card-label">Temp</div><div class="vital-card-value">${escapeHtml(String(v.temperature))} <small style="font-size:.7rem">°C</small></div></div>` : ''}
+            ${spo2Val ? `<div class="vital-card" style="padding:.5rem .75rem"><div class="vital-card-label">SpO₂</div><div class="vital-card-value">${escapeHtml(String(spo2Val))} <small style="font-size:.7rem">%</small></div></div>` : ''}
+            ${v.respiratory_rate ? `<div class="vital-card" style="padding:.5rem .75rem"><div class="vital-card-label">Resp</div><div class="vital-card-value">${escapeHtml(String(v.respiratory_rate))} <small style="font-size:.7rem">/min</small></div></div>` : ''}
+            ${v.weight ? `<div class="vital-card" style="padding:.5rem .75rem"><div class="vital-card-label">Weight</div><div class="vital-card-value">${escapeHtml(String(v.weight))} <small style="font-size:.7rem">kg</small></div></div>` : ''}
+            ${v.blood_glucose ? `<div class="vital-card" style="padding:.5rem .75rem"><div class="vital-card-label">Glucose</div><div class="vital-card-value">${escapeHtml(String(v.blood_glucose))} <small style="font-size:.7rem">mg/dL</small></div></div>` : ''}
+            ${v.pain_score != null ? `<div class="vital-card" style="padding:.5rem .75rem"><div class="vital-card-label">Pain</div><div class="vital-card-value">${escapeHtml(String(v.pain_score))}/10</div></div>` : ''}
+          </div>
+          ${v.notes ? `<div style="margin-top:0.75rem;padding:0.5rem 0.75rem;background:var(--bg-subtle, #f8f9fa);border-radius:4px;font-size:0.85rem;"><strong>Notes:</strong> ${escapeHtml(v.notes)}</div>` : ''}
+        </div>
+      `;
+    }
+  }
+
+  // Bind view all vitals button
+  const viewAllVitalsBtn = document.getElementById('summary-view-all-vitals-btn');
+  if (viewAllVitalsBtn) {
+    viewAllVitalsBtn.onclick = () => activateChartTab('vitals');
+  }
+
   // Encounter history
   const { data: encounters } = await getPatientEncounters(patient.id);
   const histEl = document.getElementById('encounter-history-list');
-  if (!encounters || encounters.length === 0) {
-    histEl.innerHTML = '<div class="empty-state">No encounters recorded.</div>';
-    return;
+  if (histEl) {
+    if (!encounters || encounters.length === 0) {
+      histEl.innerHTML = '<div class="empty-state">No encounters recorded.</div>';
+    } else {
+      histEl.innerHTML = encounters.map(enc => `
+        <div class="list-item">
+          <div class="list-item-body">
+            <div class="list-item-title">${escapeHtml(enc.encounter_type || 'Encounter')}</div>
+            <div class="list-item-meta">${formatDate(enc.created_at, 'datetime')} · Opened by: ${escapeHtml(enc.opened_by_profile?.full_name || '—')}</div>
+            ${enc.chief_complaint ? `<div class="list-item-note">CC: ${escapeHtml(enc.chief_complaint)}</div>` : ''}
+          </div>
+          <div class="list-item-aside">
+            <span class="badge ${getStatusBadgeClass(enc.status)}">${escapeHtml(enc.status || '')}</span>
+          </div>
+        </div>
+      `).join('');
+    }
   }
-  histEl.innerHTML = encounters.map(enc => `
-    <div class="list-item">
-      <div class="list-item-body">
-        <div class="list-item-title">${escapeHtml(enc.encounter_type || 'Encounter')}</div>
-        <div class="list-item-meta">${formatDate(enc.created_at, 'datetime')} · Opened by: ${escapeHtml(enc.opened_by_profile?.full_name || '—')}</div>
-        ${enc.chief_complaint ? `<div class="list-item-note">CC: ${escapeHtml(enc.chief_complaint)}</div>` : ''}
-      </div>
-      <div class="list-item-aside">
-        <span class="badge ${getStatusBadgeClass(enc.status)}">${escapeHtml(enc.status || '')}</span>
-      </div>
-    </div>
-  `).join('');
 }
 
 async function loadChartVitals(patientId, encounterId) {
   const container = document.getElementById('vitals-grid');
+  if (!container) return;
   container.innerHTML = '<div class="loading-state">Loading vitals...</div>';
-  const { data, error } = await getPatientVitals(patientId, encounterId);
-  if (error || !data || data.length === 0) {
+  // Load ALL vitals for the patient so nursing recordings always appear
+  const { data, error } = await getPatientVitals(patientId, null);
+  if (error) {
+    container.innerHTML = `<div class="error-state" style="padding:1rem;color:var(--text-danger)">Error loading vitals: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+  if (!data || data.length === 0) {
     container.innerHTML = '<div class="empty-state">No vitals recorded yet.</div>';
     return;
   }
   const v = data[0];
+  const spo2Val = v.oxygen_saturation ?? v.spo2;
   const cards = [
     { label: 'Blood Pressure', value: (v.bp_systolic && v.bp_diastolic) ? `${v.bp_systolic}/${v.bp_diastolic} mmHg` : '—', icon: '🫀' },
     { label: 'Pulse Rate', value: v.pulse_rate ? `${v.pulse_rate} bpm` : '—', icon: '💓' },
     { label: 'Resp. Rate', value: v.respiratory_rate ? `${v.respiratory_rate} /min` : '—', icon: '🫁' },
     { label: 'Temperature', value: v.temperature ? `${v.temperature} °C` : '—', icon: '🌡️' },
-    { label: 'SpO₂', value: v.spo2 ? `${v.spo2}%` : '—', icon: '🩺' },
+    { label: 'SpO₂', value: spo2Val ? `${spo2Val}%` : '—', icon: '🩺' },
     { label: 'Weight', value: v.weight ? `${v.weight} kg` : '—', icon: '⚖️' },
     { label: 'Height', value: v.height ? `${v.height} cm` : '—', icon: '📏' },
     { label: 'BMI', value: v.bmi ? `${v.bmi} (${interpretBMI(v.bmi)})` : '—', icon: '📊' },
     { label: 'Blood Glucose', value: v.blood_glucose ? `${v.blood_glucose} mg/dL` : '—', icon: '🩸' },
     { label: 'Pain Score', value: v.pain_score != null ? `${v.pain_score}/10` : '—', icon: '😣' },
   ];
-  container.innerHTML = `
+  let html = `
     <div style="margin-bottom:.5rem;font-size:.8rem;color:var(--text-muted)">
-      Last recorded: ${formatDate(v.created_at, 'datetime')} by ${escapeHtml(v.recorded_by_profile?.full_name || '—')}
+      Last recorded: ${formatDate(v.created_at, 'datetime')} by ${escapeHtml(v.recorded_by_profile?.full_name || 'Staff')}${v.recorded_by_profile?.role ? ` (${escapeHtml(v.recorded_by_profile.role)})` : ''}
     </div>
     <div class="vitals-cards-grid">
       ${cards.map(c => `
@@ -666,7 +720,50 @@ async function loadChartVitals(patientId, encounterId) {
         </div>
       `).join('')}
     </div>
+    ${v.notes ? `<div style="margin-top:1rem;padding:.75rem 1rem;background:var(--bg-subtle,#f8f9fa);border-radius:6px;font-size:.875rem;"><strong>Clinical Notes on Vitals:</strong> ${escapeHtml(v.notes)}</div>` : ''}
   `;
+
+  if (data.length > 1) {
+    html += `
+      <div style="margin-top:1.5rem;">
+        <h4 style="font-size:.95rem;margin-bottom:.75rem;">Vitals History (${data.length} records)</h4>
+        <div class="table-responsive" style="overflow-x:auto;">
+          <table class="data-table" style="width:100%;font-size:.825rem;border-collapse:collapse;">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border-color,#e5e7eb);text-align:left;">
+                <th style="padding:.5rem">Date & Time</th>
+                <th style="padding:.5rem">BP</th>
+                <th style="padding:.5rem">Pulse</th>
+                <th style="padding:.5rem">Temp</th>
+                <th style="padding:.5rem">SpO₂</th>
+                <th style="padding:.5rem">Resp</th>
+                <th style="padding:.5rem">Weight</th>
+                <th style="padding:.5rem">Recorded By</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(rec => {
+                const s = rec.oxygen_saturation ?? rec.spo2;
+                return `
+                  <tr style="border-bottom:1px solid var(--border-color,#f1f5f9);">
+                    <td style="padding:.5rem">${formatDate(rec.created_at, 'datetime')}</td>
+                    <td style="padding:.5rem">${(rec.bp_systolic && rec.bp_diastolic) ? `${rec.bp_systolic}/${rec.bp_diastolic}` : '—'}</td>
+                    <td style="padding:.5rem">${rec.pulse_rate ? `${rec.pulse_rate} bpm` : '—'}</td>
+                    <td style="padding:.5rem">${rec.temperature ? `${rec.temperature}°C` : '—'}</td>
+                    <td style="padding:.5rem">${s ? `${s}%` : '—'}</td>
+                    <td style="padding:.5rem">${rec.respiratory_rate ? `${rec.respiratory_rate}` : '—'}</td>
+                    <td style="padding:.5rem">${rec.weight ? `${rec.weight} kg` : '—'}</td>
+                    <td style="padding:.5rem">${escapeHtml(rec.recorded_by_profile?.full_name || '—')}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+  container.innerHTML = html;
 }
 
 async function loadChartNotes(patientId, encounterId) {
@@ -1298,7 +1395,7 @@ async function saveVitals() {
     pulse_rate: parseInt(document.getElementById('v-pulse').value) || null,
     respiratory_rate: parseInt(document.getElementById('v-resp').value) || null,
     temperature: parseFloat(document.getElementById('v-temp').value) || null,
-    spo2: parseInt(document.getElementById('v-spo2').value) || null,
+    oxygen_saturation: parseInt(document.getElementById('v-spo2').value) || null,
     weight,
     height,
     bmi: (weight && height) ? calculateBMI(weight, height) : null,
@@ -1314,7 +1411,8 @@ async function saveVitals() {
   if (error) { showToast(error.message, 'error'); return; }
   showToast('Vitals recorded', 'success');
   document.getElementById('vitals-modal-overlay').classList.remove('active');
-  loadChartVitals(patient.id, encounterId);
+  loadChartVitals(patient.id, null);
+  loadChartSummary(patient);
 }
 
 // ─── Shared Patient Search (new workflow) ─────────────────────────────────────

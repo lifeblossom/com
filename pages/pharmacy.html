@@ -38,11 +38,6 @@
         <span class="nav-item-icon">📊</span>
         <span class="nav-item-label">Overview</span>
       </button>
-      <button class="nav-item" data-view="inbox">
-        <span class="nav-item-icon">📥</span>
-        <span class="nav-item-label">Inbox</span>
-        <span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span>
-      </button>
       <button class="nav-item" data-view="prescriptions">
         <span class="nav-item-icon">💊</span>
         <span class="nav-item-label">Prescriptions Queue</span>
@@ -187,19 +182,6 @@
         </div>
       </div>
 
-      <!-- ═══ INBOX VIEW ═══ -->
-      <div id="view-inbox" class="view-section" style="display:none">
-        <div class="view-header">
-          <h2>Inbox</h2>
-          <p class="view-subtitle">Patient files sent to pharmacy</p>
-        </div>
-        <div class="filter-bar">
-          <button class="filter-chip active" data-inbox-filter="active">Active</button>
-          <button class="filter-chip" data-inbox-filter="all">All</button>
-          <button class="filter-chip" data-inbox-filter="completed">Completed</button>
-        </div>
-        <div id="inbox-list"></div>
-      </div>
 
       <!-- ═══ PRESCRIPTIONS QUEUE VIEW ═══ -->
       <div id="view-prescriptions" class="view-section" style="display:none">
