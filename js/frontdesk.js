@@ -6,7 +6,7 @@
  * File Transfers (Inbox/Sent), Encounters, and Patient Chart side panel.
  */
 
-import { requireAuth, signOut } from './auth.js';
+import { requireAuth, signOut, redirectToDashboard } from './auth.js';
 import { supabase } from './supabase-client.js';
 import {
   getInitials, formatRole, formatDate, calculateAge,
@@ -33,15 +33,20 @@ let searchQuery = '';
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   const profile = await requireAuth();
-  if (!profile) { window.location.href = '../index.html'; return; }
-  if (profile.role !== 'front_desk') { window.location.href = '../index.html'; return; }
+  if (!profile) { window.location.replace('../index.html'); return; }
+  if (profile.role !== 'front_desk') { redirectToDashboard(profile.role, false); return; }
   currentProfile = profile;
 
   // Set DOB max to today
-  document.getElementById('reg-dob').max = new Date().toISOString().substring(0, 10);
+  const regDob = document.getElementById('reg-dob');
+  if (regDob) regDob.max = new Date().toISOString().substring(0, 10);
 
   initUI(profile);
-  await Promise.all([loadOverview(), loadNotifications()]);
+  try {
+    await Promise.all([loadOverview(), loadNotifications()]);
+  } catch (err) {
+    console.warn('Frontdesk overview load non-fatal warning:', err);
+  }
 }
 
 function initUI(profile) {
@@ -151,8 +156,13 @@ function initUI(profile) {
 }
 
 async function handleSignOut() {
-  await signOut();
-  window.location.href = '../index.html';
+  try {
+    await signOut();
+  } catch (err) {
+    console.error('Front desk sign-out failed:', err);
+  } finally {
+    window.location.replace('../index.html');
+  }
 }
 
 // ─── View Switching ───────────────────────────────────────────────────────────
@@ -1027,4 +1037,14 @@ function closeChartPanel() {
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init, { once: true });
+} else {
+  void init();
+}
+
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    void init();
+  }
+});

@@ -217,7 +217,7 @@ async function handleSignOut() {
   } catch (err) {
     console.error('Admin sign-out failed:', err);
   } finally {
-    window.location.href = '../index.html';
+    window.location.replace('../index.html');
   }
 }
 
@@ -917,3 +917,9 @@ if (document.readyState === 'loading') {
 } else {
   void init();
 }
+
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    void init();
+  }
+});

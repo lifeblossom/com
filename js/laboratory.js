@@ -15,7 +15,7 @@
  *   - Record pharmacy dispensing
  */
 
-import { requireAuth, signOut } from './auth.js';
+import { requireAuth, signOut, redirectToDashboard } from './auth.js';
 import {
   getInitials, formatRole, formatDate, calculateAge,
   getStatusBadgeClass, showToast, debounce, escapeHtml,
@@ -38,15 +38,19 @@ const PAGE_SIZE = 20;
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   const profile = await requireAuth();
-  if (!profile) { window.location.href = '../index.html'; return; }
-  if (profile.role !== 'lab_technician') { window.location.href = '../index.html'; return; }
+  if (!profile) { window.location.replace('../index.html'); return; }
+  if (profile.role !== 'lab_technician') { redirectToDashboard(profile.role, false); return; }
 
-  const { data: { user } } = await supabase.auth.getUser();
-  currentUser = user;
+  const { data: userData } = await supabase.auth.getUser();
+  currentUser = userData?.user || { id: profile.id };
   currentProfile = profile;
 
   initUI(profile);
-  await Promise.all([loadOverview(), loadOrdersQueue()]);
+  try {
+    await Promise.all([loadOverview(), loadOrdersQueue()]);
+  } catch (err) {
+    console.warn('Laboratory overview load non-fatal warning:', err);
+  }
 }
 
 // ─── UI Bootstrap ─────────────────────────────────────────────────────────────
@@ -142,8 +146,13 @@ function switchView(view) {
 }
 
 async function handleSignOut() {
-  await signOut();
-  window.location.href = '../index.html';
+  try {
+    await signOut();
+  } catch (err) {
+    console.error('Laboratory sign-out failed:', err);
+  } finally {
+    window.location.replace('../index.html');
+  }
 }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
@@ -299,4 +308,14 @@ async function openPatientFile(patientId) {
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init, { once: true });
+} else {
+  void init();
+}
+
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    void init();
+  }
+});

@@ -14,7 +14,7 @@
  *   - Create lab orders, prescriptions, or dispense medication
  */
 
-import { requireAuth, signOut } from './auth.js';
+import { requireAuth, signOut, redirectToDashboard } from './auth.js';
 import { getInitials, formatRole, formatDate, calculateAge, showToast, debounce, escapeHtml } from './utils.js';
 import { supabase } from './supabase-client.js';
 import { PatientFile } from './patient-file.js';
@@ -33,11 +33,11 @@ const PAGE_SIZE = 20;
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   const profile = await requireAuth();
-  if (!profile) { window.location.href = '../index.html'; return; }
-  if (profile.role !== 'nurse') { window.location.href = '../index.html'; return; }
+  if (!profile) { window.location.replace('../index.html'); return; }
+  if (profile.role !== 'nurse') { redirectToDashboard(profile.role, false); return; }
 
-  const { data: { user } } = await supabase.auth.getUser();
-  currentUser = user;
+  const { data: userData } = await supabase.auth.getUser();
+  currentUser = userData?.user || { id: profile.id };
   currentProfile = profile;
 
   initUI(profile);
@@ -136,8 +136,13 @@ function switchView(view) {
 
 // ─── Sign Out ─────────────────────────────────────────────────────────────────
 async function handleSignOut() {
-  await signOut();
-  window.location.href = '../index.html';
+  try {
+    await signOut();
+  } catch (err) {
+    console.error('Nurse sign-out failed:', err);
+  } finally {
+    window.location.replace('../index.html');
+  }
 }
 
 // ─── Patient Search ───────────────────────────────────────────────────────────
@@ -252,4 +257,14 @@ async function updateOverviewCurrentPatient(patientId) {
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init, { once: true });
+} else {
+  void init();
+}
+
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    void init();
+  }
+});

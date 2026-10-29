@@ -6,7 +6,7 @@
  * Medicine Inventory, Dispense Medication, Inventory Movements.
  */
 
-import { requireAuth, signOut } from './auth.js';
+import { requireAuth, signOut, redirectToDashboard } from './auth.js';
 import { supabase } from './supabase-client.js';
 import {
   getInitials, formatRole, formatDate, calculateAge,
@@ -41,11 +41,15 @@ const loaded = {};
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   const profile = await requireAuth();
-  if (!profile) { window.location.href = '../index.html'; return; }
-  if (profile.role !== 'pharmacist') { window.location.href = '../index.html'; return; }
+  if (!profile) { window.location.replace('../index.html'); return; }
+  if (profile.role !== 'pharmacist') { redirectToDashboard(profile.role, false); return; }
   currentProfile = profile;
   initUI(profile);
-  await Promise.all([loadOverview(), loadNotifications()]);
+  try {
+    await Promise.all([loadOverview(), loadNotifications()]);
+  } catch (err) {
+    console.warn('Pharmacy overview load non-fatal warning:', err);
+  }
 }
 
 // ─── UI Bootstrap ─────────────────────────────────────────────────────────────
@@ -195,8 +199,13 @@ function setupModalClose(overlayId, closeId, cancelId) {
 }
 
 async function handleSignOut() {
-  await signOut();
-  window.location.href = '../index.html';
+  try {
+    await signOut();
+  } catch (err) {
+    console.error('Pharmacy sign-out failed:', err);
+  } finally {
+    window.location.replace('../index.html');
+  }
 }
 
 // ─── View Switching ───────────────────────────────────────────────────────────
@@ -1280,4 +1289,14 @@ async function pharmOpenPatientFile(patientId) {
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init, { once: true });
+} else {
+  void init();
+}
+
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    void init();
+  }
+});

@@ -53,9 +53,24 @@ export async function signIn(email, password) {
  * Sign out the current user and clear session.
  */
 export async function signOut() {
-  await supabase.auth.signOut();
-  // Clear any cached state
-  sessionStorage.removeItem('lbc_profile');
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.warn('Supabase sign-out warning:', error);
+    }
+  } catch (err) {
+    console.warn('Network or session sign-out exception:', err);
+  } finally {
+    // Clear all session storage
+    sessionStorage.clear();
+    // Clear any Supabase client session tokens in localStorage if present
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('sb-') || key.includes('supabase') || key.startsWith('lbc_'))) {
+        localStorage.removeItem(key);
+      }
+    }
+  }
 }
 
 /**
