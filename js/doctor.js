@@ -17,9 +17,11 @@ import { searchPatients, getPatient, getPatientEncounters, getPatientAllergies, 
 import { recordVitals, getPatientVitals, createNote, getPatientNotes, signNote, addDiagnosis, getPatientDiagnoses } from './api/clinical-api.js';
 import { supabase } from './supabase-client.js';
 import { listPatientDocuments, uploadPatientDocument, createPatientDocumentUrl } from './api/documents-api.js';
+import { PatientFile } from './patient-file.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let currentProfile = null;
+let currentUser = null;
 let currentView = 'overview';
 let chartContext = null;   // { patient, transfer, encounterId }
 let chartBackView = 'inbox';
@@ -27,12 +29,22 @@ let inboxFilter = 'active';
 let labFilter = 'all';
 let rxFilter = 'all';
 
+// Shared patient search state
+let docSearchPage = 1;
+let docSearchQuery = '';
+let docSelectedPatientId = null;
+let docPatientFileComponent = null;
+
+const DOC_PAGE_SIZE = 20;
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   const profile = await requireAuth();
   if (!profile) { window.location.href = '../index.html'; return; }
   if (profile.role !== 'doctor') { window.location.href = '../index.html'; return; }
   currentProfile = profile;
+  const { data: { user } } = await supabase.auth.getUser();
+  currentUser = user;
   initUI(profile);
   await Promise.all([loadOverview(), loadNotifications()]);
 }
@@ -206,6 +218,29 @@ function initUI(profile) {
   document.getElementById('send-modal-submit').addEventListener('click', submitSendFile);
   document.getElementById('chart-send-file-btn').addEventListener('click', openSendModal);
   document.getElementById('send-staff-search').addEventListener('input', debounce(searchStaff, 400));
+
+  // ── Shared patient search (new workflow) ─────────────────────────────────
+  const docSearchInput = document.getElementById('doc-patient-search');
+  if (docSearchInput) {
+    docSearchInput.addEventListener('input', debounce(() => {
+      docSearchQuery = docSearchInput.value.trim();
+      docSearchPage = 1;
+      doDoctorPatientSearch();
+    }, 400));
+  }
+
+  // Back button in patient-file view
+  document.getElementById('doc-back-to-search-btn')?.addEventListener('click', () => switchView('search'));
+
+  // Initialize shared PatientFile component
+  const docFileContainer = document.getElementById('doc-patient-file-container');
+  if (docFileContainer && currentUser) {
+    docPatientFileComponent = new PatientFile(docFileContainer, {
+      role: profile.role,
+      userId: currentUser?.id,
+      userName: profile.full_name,
+    });
+  }
 }
 
 function setupModalClose(overlayId, closeId, cancelId) {
@@ -238,6 +273,7 @@ function switchView(view) {
     overview: 'Overview', inbox: 'Inbox', chart: 'Patient Chart',
     lookup: 'Patient Lookup', mypatients: 'My Patients',
     laborders: 'Lab Orders', prescriptions: 'Prescriptions', sendfile: 'Send File',
+    search: 'Patient Search', 'patient-file': 'Patient File',
   };
   document.getElementById('page-title').textContent = titles[view] || 'Dashboard';
 
@@ -246,6 +282,7 @@ function switchView(view) {
   if (view === 'mypatients') loadMyPatients();
   if (view === 'laborders') loadLabOrders();
   if (view === 'prescriptions') loadPrescriptions();
+  if (view === 'search' && !docSearchQuery) doDoctorPatientSearch();
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
@@ -1269,6 +1306,104 @@ async function saveVitals() {
   showToast('Vitals recorded', 'success');
   document.getElementById('vitals-modal-overlay').classList.remove('active');
   loadChartVitals(patient.id, encounterId);
+}
+
+// ─── Shared Patient Search (new workflow) ─────────────────────────────────────
+async function doDoctorPatientSearch() {
+  const container = document.getElementById('doc-search-results');
+  if (!container) return;
+  container.innerHTML = '<div class="loading-state">Searching…</div>';
+
+  const q = docSearchQuery;
+  const offset = (docSearchPage - 1) * DOC_PAGE_SIZE;
+
+  const { data, error, count } = await supabase
+    .from('patients')
+    .select('id, hospital_number, first_name, middle_name, last_name, date_of_birth, sex, phone, created_at', { count: 'exact' })
+    .or(q
+      ? `hospital_number.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%`
+      : 'id.neq.00000000-0000-0000-0000-000000000000'
+    )
+    .order('created_at', { ascending: false })
+    .range(offset, offset + DOC_PAGE_SIZE - 1);
+
+  if (error) {
+    container.innerHTML = `<div class="error-state">Search failed: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  if (!data?.length) {
+    container.innerHTML = '<div class="empty-state">No patients found. Check the spelling or try a different search term.</div>';
+    const pagEl = document.getElementById('doc-search-pagination');
+    if (pagEl) pagEl.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = data.map(patient => {
+    const name = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ');
+    const age  = patient.date_of_birth ? `${calculateAge(patient.date_of_birth)} yrs` : '—';
+    return `
+      <div class="list-item">
+        <div class="list-item-body">
+          <div class="list-item-title">${escapeHtml(name)}</div>
+          <div class="list-item-meta">
+            🏥 ${escapeHtml(patient.hospital_number)} ·
+            👤 ${escapeHtml(patient.sex || '—')}, ${age} ·
+            📞 ${escapeHtml(patient.phone || '—')} ·
+            Registered: ${formatDate(patient.created_at, 'date')}
+          </div>
+        </div>
+        <div class="list-item-aside">
+          <button class="btn btn-primary btn-sm doc-open-patient-btn"
+                  data-patient-id="${escapeHtml(patient.id)}">Open File</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  container.querySelectorAll('.doc-open-patient-btn').forEach(btn => {
+    btn.addEventListener('click', () => doctorOpenPatientFile(btn.dataset.patientId));
+  });
+
+  renderDocSearchPagination(count);
+}
+
+function renderDocSearchPagination(totalCount) {
+  const pagEl = document.getElementById('doc-search-pagination');
+  if (!pagEl) return;
+  if (!totalCount || totalCount <= DOC_PAGE_SIZE) { pagEl.innerHTML = ''; return; }
+  const totalPages = Math.ceil(totalCount / DOC_PAGE_SIZE);
+  pagEl.innerHTML = `
+    <div class="pagination">
+      <button class="btn btn-sm btn-secondary" ${docSearchPage <= 1 ? 'disabled' : ''} id="doc-pag-prev">← Prev</button>
+      <span>Page ${docSearchPage} of ${totalPages}</span>
+      <button class="btn btn-sm btn-secondary" ${docSearchPage >= totalPages ? 'disabled' : ''} id="doc-pag-next">Next →</button>
+    </div>`;
+  document.getElementById('doc-pag-prev')?.addEventListener('click', () => { docSearchPage--; doDoctorPatientSearch(); });
+  document.getElementById('doc-pag-next')?.addEventListener('click', () => { docSearchPage++; doDoctorPatientSearch(); });
+}
+
+async function doctorOpenPatientFile(patientId) {
+  docSelectedPatientId = patientId;
+
+  // Show badge on nav item
+  const badge = document.getElementById('doctor-file-badge');
+  if (badge) badge.style.display = '';
+
+  // Initialise component lazily (if currentUser was not ready during initUI)
+  if (!docPatientFileComponent) {
+    const container = document.getElementById('doc-patient-file-container');
+    if (container) {
+      const { data: { user } } = await supabase.auth.getUser();
+      docPatientFileComponent = new PatientFile(container, {
+        role: currentProfile.role,
+        userId: user?.id,
+        userName: currentProfile.full_name,
+      });
+    }
+  }
+
+  switchView('patient-file');
+  await docPatientFileComponent?.load(patientId);
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────

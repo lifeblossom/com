@@ -53,8 +53,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const corsPreflight = handleCors(req);
   if (corsPreflight) return corsPreflight;
 
+  const requestOrigin = req.headers.get('Origin');
+
   if (req.method !== 'POST') {
-    return errorResponse('Method Not Allowed. Expected POST.', 405);
+    return errorResponse('Method Not Allowed. Expected POST.', 405, undefined, {}, requestOrigin);
   }
 
   try {
@@ -65,13 +67,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
       console.error('Missing required Supabase environment variables');
-      return errorResponse('Internal server configuration error', 500);
+      return errorResponse('Internal server configuration error', 500, undefined, {}, requestOrigin);
     }
 
     // 1. Verify caller is admin and active
     const authHeader = req.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return errorResponse('Missing or invalid Authorization header. Bearer token required.', 401);
+      return errorResponse('Missing or invalid Authorization header. Bearer token required.', 401, undefined, {}, requestOrigin);
     }
 
     const anonClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -86,7 +88,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (authError || !callerUser) {
       console.warn('Caller authentication failed:', authError?.message);
-      return errorResponse('Invalid or expired authentication session', 401);
+      return errorResponse('Invalid or expired authentication session', 401, undefined, {}, requestOrigin);
     }
 
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -101,26 +103,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (callerProfileError || !callerProfile) {
       console.warn(`Profile lookup failed for caller ${callerUser.id}:`, callerProfileError?.message);
-      return errorResponse('Caller administrative profile not found', 403);
+      return errorResponse('Caller administrative profile not found', 403, undefined, {}, requestOrigin);
     }
 
     if (callerProfile.role !== 'admin') {
-      return errorResponse('Forbidden: Caller does not have administrative privileges', 403);
+      return errorResponse('Forbidden: Caller does not have administrative privileges', 403, undefined, {}, requestOrigin);
     }
 
     if (callerProfile.status !== 'active') {
-      return errorResponse('Forbidden: Administrator account is not active', 403);
+      return errorResponse('Forbidden: Administrator account is not active', 403, undefined, {}, requestOrigin);
     }
 
     // Validate request JSON payload
     const { data: body, error: parseError } = await safeParseJson<DeactivateStaffBody>(req);
     if (parseError || !body) {
-      return errorResponse(parseError || 'Invalid JSON body', 400);
+      return errorResponse(parseError || 'Invalid JSON body', 400, undefined, {}, requestOrigin);
     }
 
     // Validate target_user_id
     if (!body.target_user_id || !isValidUUID(body.target_user_id)) {
-      return errorResponse('Valid target_user_id (UUID) is required', 400);
+      return errorResponse('Valid target_user_id (UUID) is required', 400, undefined, {}, requestOrigin);
     }
     const targetUserId = body.target_user_id.trim();
 
@@ -128,7 +130,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (callerUser.id === targetUserId) {
       return errorResponse(
         'Administrators cannot suspend, deactivate, or modify their own active account status',
-        403
+        403,
+        undefined,
+        {},
+        requestOrigin
       );
     }
 
@@ -136,7 +141,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!body.action || !(body.action in ACTION_MAP)) {
       return errorResponse(
         "Invalid action. Must be one of: 'suspend', 'deactivate', 'reactivate'",
-        400
+        400,
+        undefined,
+        {},
+        requestOrigin
       );
     }
     const action = body.action as ActionType;
@@ -154,18 +162,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (fetchError) {
       console.error('Error fetching target profile:', fetchError.message);
-      return errorResponse('Database query failed', 500);
+      return errorResponse('Database query failed', 500, undefined, {}, requestOrigin);
     }
 
     if (!targetProfile) {
-      return errorResponse('Staff member profile not found', 404);
+      return errorResponse('Staff member profile not found', 404, undefined, {}, requestOrigin);
     }
 
     // Prevent modifying other administrator accounts through this staff endpoint
     if (targetProfile.role === 'admin') {
       return errorResponse(
         'Cannot suspend or deactivate an administrator account through this endpoint',
-        403
+        403,
+        undefined,
+        {},
+        requestOrigin
       );
     }
 
@@ -173,7 +184,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (targetProfile.status === newStatus) {
       return errorResponse(
         `Staff member account is already in '${newStatus}' state`,
-        400
+        400,
+        undefined,
+        {},
+        requestOrigin
       );
     }
 
@@ -181,12 +195,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (action === 'reactivate') {
       const quotaCheck = await checkStaffAccountLimit(adminClient, targetProfile.role, targetUserId);
       if (quotaCheck.error) {
-        return errorResponse(quotaCheck.error, 500);
+        return errorResponse(quotaCheck.error, 500, undefined, {}, requestOrigin);
       }
       if (!quotaCheck.allowed) {
         return errorResponse(
           `Cannot reactivate staff member. Active staff quota for role '${targetProfile.role}' reached its maximum limit (${quotaCheck.maxLimit}).`,
-          409
+          409,
+          undefined,
+          {},
+          requestOrigin
         );
       }
     }
@@ -204,7 +221,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (updateError || !updatedProfile) {
       console.error('Failed to update status in profiles table:', updateError?.message);
-      return errorResponse('Failed to update staff member status', 500);
+      return errorResponse('Failed to update staff member status', 500, undefined, {}, requestOrigin);
     }
 
     // 6. If suspending or deactivating, also invalidate sessions: use adminClient.auth.admin.signOut(target_user_id) or updateUserById to ban
@@ -262,7 +279,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         profile: updatedProfile,
       },
       200,
-      getRateLimitHeaders()
+      getRateLimitHeaders(),
+      requestOrigin
     );
   } catch (err) {
     console.error('Unhandled exception in admin-deactivate-staff:', err);

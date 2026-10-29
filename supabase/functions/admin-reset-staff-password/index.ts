@@ -39,8 +39,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const corsPreflight = handleCors(req);
   if (corsPreflight) return corsPreflight;
 
+  const requestOrigin = req.headers.get('Origin');
+
   if (req.method !== 'POST') {
-    return errorResponse('Method Not Allowed. Expected POST.', 405);
+    return errorResponse('Method Not Allowed. Expected POST.', 405, undefined, {}, requestOrigin);
   }
 
   try {
@@ -51,13 +53,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
       console.error('Missing required Supabase environment variables');
-      return errorResponse('Internal server configuration error', 500);
+      return errorResponse('Internal server configuration error', 500, undefined, {}, requestOrigin);
     }
 
     // 1. Verify caller is admin and active
     const authHeader = req.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return errorResponse('Missing or invalid Authorization header. Bearer token required.', 401);
+      return errorResponse('Missing or invalid Authorization header. Bearer token required.', 401, undefined, {}, requestOrigin);
     }
 
     const anonClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -72,7 +74,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (authError || !callerUser) {
       console.warn('Caller authentication failed:', authError?.message);
-      return errorResponse('Invalid or expired authentication session', 401);
+      return errorResponse('Invalid or expired authentication session', 401, undefined, {}, requestOrigin);
     }
 
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -87,26 +89,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (callerProfileError || !callerProfile) {
       console.warn(`Profile lookup failed for caller ${callerUser.id}:`, callerProfileError?.message);
-      return errorResponse('Caller administrative profile not found', 403);
+      return errorResponse('Caller administrative profile not found', 403, undefined, {}, requestOrigin);
     }
 
     if (callerProfile.role !== 'admin') {
-      return errorResponse('Forbidden: Caller does not have administrative privileges', 403);
+      return errorResponse('Forbidden: Caller does not have administrative privileges', 403, undefined, {}, requestOrigin);
     }
 
     if (callerProfile.status !== 'active') {
-      return errorResponse('Forbidden: Administrator account is not active', 403);
+      return errorResponse('Forbidden: Administrator account is not active', 403, undefined, {}, requestOrigin);
     }
 
     // Validate request JSON payload
     const { data: body, error: parseError } = await safeParseJson<ResetPasswordBody>(req);
     if (parseError || !body) {
-      return errorResponse(parseError || 'Invalid JSON body', 400);
+      return errorResponse(parseError || 'Invalid JSON body', 400, undefined, {}, requestOrigin);
     }
 
     // Validate target_user_id is a valid UUID
     if (!body.target_user_id || !isValidUUID(body.target_user_id)) {
-      return errorResponse('Valid target_user_id (UUID) is required', 400);
+      return errorResponse('Valid target_user_id (UUID) is required', 400, undefined, {}, requestOrigin);
     }
     const targetUserId = body.target_user_id.trim();
 
@@ -119,32 +121,35 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (fetchError) {
       console.error('Error fetching staff profile:', fetchError.message);
-      return errorResponse('Database query failed', 500);
+      return errorResponse('Database query failed', 500, undefined, {}, requestOrigin);
     }
 
     if (!targetProfile || !targetProfile.email) {
-      return errorResponse('Staff member profile not found or missing email address', 404);
+      return errorResponse('Staff member profile not found or missing email address', 404, undefined, {}, requestOrigin);
     }
 
     // Check if the target user account is deactivated
     if (targetProfile.status === 'deactivated') {
       return errorResponse(
         'Cannot initiate password reset for a deactivated staff account. Please reactivate the account first.',
-        400
+        400,
+        undefined,
+        {},
+        requestOrigin
       );
     }
 
     // Send a recovery link to the application's password-update screen.
     const appOrigin = Deno.env.get('APP_ORIGIN');
     if (!appOrigin) {
-      return errorResponse('Password recovery is not configured', 500);
+      return errorResponse('Password recovery is not configured', 500, undefined, {}, requestOrigin);
     }
     const { error: resetError } = await adminClient.auth.resetPasswordForEmail(targetProfile.email, {
       redirectTo: new URL('/index.html', appOrigin).toString(),
     });
     if (resetError) {
       console.error('Failed to send staff password recovery email:', resetError.message);
-      return errorResponse('Failed to send password recovery email', 500);
+      return errorResponse('Failed to send password recovery email', 500, undefined, {}, requestOrigin);
     }
 
     const clientIp = getClientIp(req);
@@ -174,10 +179,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
         target_user_id: targetUserId,
       },
       200,
-      getRateLimitHeaders()
+      getRateLimitHeaders(),
+      requestOrigin
     );
   } catch (err) {
     console.error('Unhandled exception in admin-reset-staff-password:', err);
-    return errorResponse('Internal server error', 500);
+    return errorResponse('Internal server error', 500, undefined, {}, requestOrigin);
   }
 });

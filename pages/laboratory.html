@@ -5,285 +5,141 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Laboratory Dashboard — Life Blossom Care and Cure Hospital</title>
   <meta name="robots" content="noindex, nofollow"/>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://yealxvgednecmwnehfrs.supabase.co wss://yealxvgednecmwnehfrs.supabase.co https://*.supabase.co wss://*.supabase.co; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://yealxvgednecmwnehfrs.supabase.co wss://yealxvgednecmwnehfrs.supabase.co https://*.supabase.co wss://*.supabase.co http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'"/>
   <link rel="icon" type="image/png" href="../images/logo.png"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap"/>
   <link rel="stylesheet" href="../css/styles.css"/>
   <link rel="stylesheet" href="../css/dashboard.css"/>
   <link rel="stylesheet" href="../css/components.css"/>
+  <link rel="stylesheet" href="../css/patient-file.css"/>
 </head>
 <body>
-<div class="dashboard-page">
-
-  <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar">
-    <a class="sidebar-brand" href="#">
-      <img src="../images/logo.png" alt="Life Blossom Logo" class="sidebar-brand-logo" width="40" height="40"/>
-      <div class="sidebar-brand-text">
-        <div class="sidebar-brand-name">Life Blossom<br/>Care &amp; Cure</div>
-        <div class="sidebar-brand-sub">EMR System</div>
-      </div>
-    </a>
-    <div class="sidebar-user">
-      <div class="sidebar-user-avatar" id="sidebar-avatar">??</div>
-      <div class="sidebar-user-info">
-        <div class="sidebar-user-name" id="sidebar-name">Loading...</div>
-        <div class="sidebar-user-role" id="sidebar-role"></div>
-      </div>
-    </div>
-    <nav class="sidebar-nav">
-      <button class="nav-item active" data-view="overview">
-        <span class="nav-item-icon">📊</span>
-        <span class="nav-item-label">Overview</span>
-      </button>
-      <button class="nav-item" data-view="inbox">
-        <span class="nav-item-icon">📥</span>
-        <span class="nav-item-label">Inbox</span>
-        <span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span>
-      </button>
-      <button class="nav-item" data-view="orders">
-        <span class="nav-item-icon">🧪</span>
-        <span class="nav-item-label">Lab Orders Queue</span>
-      </button>
-      <button class="nav-item" data-view="enter-results">
-        <span class="nav-item-icon">📋</span>
-        <span class="nav-item-label">Enter Results</span>
-      </button>
-      <button class="nav-item" data-view="my-results">
-        <span class="nav-item-icon">📁</span>
-        <span class="nav-item-label">My Results</span>
-      </button>
-    </nav>
-    <div class="sidebar-footer">
-      <button class="nav-item" id="sign-out-btn">
-        <span class="nav-item-icon">🚪</span>
-        <span class="nav-item-label">Sign Out</span>
-      </button>
-    </div>
-  </aside>
-
-  <div class="sidebar-overlay" id="sidebar-overlay"></div>
-  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Open menu">☰</button>
-
-  <!-- Main -->
-  <main class="main-content">
-    <header class="topbar">
-      <div class="topbar-left">
-        <h1 class="topbar-title" id="page-title">Laboratory Dashboard</h1>
-      </div>
-      <div class="topbar-right">
-        <button class="notif-btn" id="notif-btn" aria-label="Notifications">
-          🔔<span class="notif-count" id="notif-count" style="display:none">0</span>
-        </button>
-        <div class="profile-menu" id="profile-menu">
-          <button class="profile-btn" id="profile-btn">
-            <div class="profile-btn-avatar" id="topbar-avatar">??</div>
-            <span class="profile-btn-name" id="topbar-name">Loading...</span>
-            <span class="profile-btn-arrow">▾</span>
-          </button>
-          <div class="profile-dropdown">
-            <div class="profile-dropdown-header">
-              <div class="profile-dropdown-name" id="dropdown-name"></div>
-              <div class="profile-dropdown-role" id="dropdown-role"></div>
-            </div>
-            <button class="profile-dropdown-item danger" id="dropdown-signout">🚪 Sign Out</button>
-          </div>
+  <div class="dashboard-page">
+    <aside class="sidebar" id="sidebar">
+      <a class="sidebar-brand" href="../index.html">
+        <img src="../images/logo.png" alt="Life Blossom Logo" class="sidebar-brand-logo" width="40" height="40"/>
+        <div class="sidebar-brand-text">
+          <div class="sidebar-brand-name">Life Blossom<br/>Care &amp; Cure</div>
+          <div class="sidebar-brand-sub">EMR System</div>
+        </div>
+      </a>
+      <div class="sidebar-user">
+        <div class="sidebar-user-avatar" id="sidebar-avatar">??</div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name" id="sidebar-name">Loading...</div>
+          <div class="sidebar-user-role" id="sidebar-role"></div>
         </div>
       </div>
-    </header>
-
-    <!-- Notification panel -->
-    <div class="notif-panel" id="notif-panel">
-      <div class="notif-panel-header">
-        <h3>Notifications</h3>
-        <button class="btn btn-ghost btn-sm" id="notif-close">✕</button>
+      <nav class="sidebar-nav" aria-label="Primary navigation">
+        <button class="nav-item active" data-view="overview"><span class="nav-item-icon">📊</span><span class="nav-item-label">Overview</span></button>
+        <button class="nav-item" data-view="orders"><span class="nav-item-icon">📋</span><span class="nav-item-label">Lab Orders Queue</span><span class="nav-badge" id="orders-badge" style="display:none">0</span></button>
+        <button class="nav-item" data-view="search"><span class="nav-item-icon">🔍</span><span class="nav-item-label">Patient Search</span></button>
+        <button class="nav-item" data-view="patient-file"><span class="nav-item-icon">🔬</span><span class="nav-item-label">Patient File</span><span class="nav-badge" id="patient-file-badge" style="display:none">1</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="nav-item" id="sign-out-btn"><span class="nav-item-icon">🚪</span><span class="nav-item-label">Sign Out</span></button>
       </div>
-      <div class="notif-panel-body" id="notif-list"></div>
-    </div>
+    </aside>
 
-    <div class="page-content">
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Open menu" aria-expanded="false">☰</button>
 
-      <!-- ═══ OVERVIEW VIEW ═══ -->
-      <div id="view-overview" class="view-section">
-        <div class="view-header">
-          <h2>Laboratory Overview</h2>
-          <p class="view-subtitle">Today's summary and quick actions</p>
-        </div>
-
-        <div class="stats-grid">
-          <div class="stat-card stat-card-warning">
-            <div class="stat-card-icon">⏳</div>
-            <div class="stat-card-body">
-              <div class="stat-card-value" id="stat-pending">—</div>
-              <div class="stat-card-label">Pending Orders</div>
-            </div>
-          </div>
-          <div class="stat-card stat-card-primary">
-            <div class="stat-card-icon">🔬</div>
-            <div class="stat-card-body">
-              <div class="stat-card-value" id="stat-inprogress">—</div>
-              <div class="stat-card-label">In Progress</div>
-            </div>
-          </div>
-          <div class="stat-card stat-card-success">
-            <div class="stat-card-icon">✅</div>
-            <div class="stat-card-body">
-              <div class="stat-card-value" id="stat-completed-today">—</div>
-              <div class="stat-card-label">Completed Today</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-card-icon">📋</div>
-            <div class="stat-card-body">
-              <div class="stat-card-value" id="stat-drafts">—</div>
-              <div class="stat-card-label">Draft Results</div>
+    <main class="main-content">
+      <header class="topbar">
+        <div class="topbar-left"><h1 class="topbar-title" id="page-title">Laboratory Dashboard</h1></div>
+        <div class="topbar-right">
+          <div class="profile-menu" id="profile-menu">
+            <button class="profile-btn" id="profile-btn" aria-haspopup="true" aria-expanded="false">
+              <div class="profile-btn-avatar" id="topbar-avatar">??</div>
+              <span class="profile-btn-name" id="topbar-name">Loading...</span>
+              <span class="profile-btn-arrow" aria-hidden="true">▾</span>
+            </button>
+            <div class="profile-dropdown">
+              <div class="profile-dropdown-header">
+                <div class="profile-dropdown-name" id="dropdown-name"></div>
+                <div class="profile-dropdown-role" id="dropdown-role"></div>
+              </div>
+              <button class="profile-dropdown-item danger" id="dropdown-signout">🚪 Sign Out</button>
             </div>
           </div>
         </div>
+      </header>
 
-        <div class="quick-actions-section">
-          <h3>Quick Actions</h3>
+      <div class="page-content">
+
+        <!-- OVERVIEW -->
+        <section id="view-overview" class="view-section">
+          <div class="view-header">
+            <h2>Laboratory Workspace</h2>
+            <p class="view-subtitle">Process lab orders, record results, and search patient files.</p>
+          </div>
           <div class="quick-actions-grid">
-            <button class="quick-action-btn" data-view="orders">
-              <span class="quick-action-icon">🧪</span>
-              <span>View Orders</span>
-            </button>
-            <button class="quick-action-btn" data-view="enter-results">
-              <span class="quick-action-icon">📋</span>
-              <span>Enter Results</span>
-            </button>
-            <button class="quick-action-btn" data-view="my-results">
-              <span class="quick-action-icon">📁</span>
-              <span>My Results</span>
-            </button>
+            <button class="quick-action-btn" data-view="orders">📋 View Lab Orders Queue</button>
+            <button class="quick-action-btn" data-view="search">🔍 Search Patient</button>
           </div>
-        </div>
-
-        <div class="section-card">
-          <div class="section-card-header">
-            <h3>Recent Orders</h3>
-            <button class="btn btn-ghost btn-sm" data-view="orders">View All</button>
+          <div class="stats-grid" id="lab-stats-grid">
+            <div class="stat-card"><div class="stat-value" id="stat-pending">—</div><div class="stat-label">Pending Orders</div></div>
+            <div class="stat-card"><div class="stat-value" id="stat-inprogress">—</div><div class="stat-label">In Progress</div></div>
+            <div class="stat-card"><div class="stat-value" id="stat-completed-today">—</div><div class="stat-label">Completed Today</div></div>
           </div>
-          <div id="overview-recent-orders"></div>
-        </div>
+          <div class="section-card">
+            <div class="section-card-header"><h3>Pending Lab Orders</h3><button class="btn btn-sm btn-secondary" id="refresh-orders-btn">↻ Refresh</button></div>
+            <div id="overview-orders-list" class="list-container"><div class="loading-state">Loading…</div></div>
+          </div>
+        </section>
+
+        <!-- LAB ORDERS QUEUE -->
+        <section id="view-orders" class="view-section" style="display:none">
+          <div class="view-header">
+            <h2>Lab Orders Queue</h2>
+            <p class="view-subtitle">All outstanding laboratory orders. Accept an order and open the patient file to enter results.</p>
+          </div>
+          <div class="filter-chips" id="orders-filter-chips">
+            <button class="chip active" data-filter="all">All</button>
+            <button class="chip" data-filter="pending">Pending</button>
+            <button class="chip" data-filter="in_progress">In Progress</button>
+            <button class="chip" data-filter="completed">Completed</button>
+          </div>
+          <div id="lab-orders-list" class="list-container"><div class="loading-state">Loading orders…</div></div>
+        </section>
+
+        <!-- PATIENT SEARCH -->
+        <section id="view-search" class="view-section" style="display:none">
+          <div class="view-header">
+            <h2>Patient Search</h2>
+            <p class="view-subtitle">Search by name, hospital number, or phone. Open the patient file to view orders and enter results.</p>
+          </div>
+          <div class="search-bar-container">
+            <input type="search" id="lab-patient-search" class="search-input" placeholder="Search name, hospital number or phone…" autocomplete="off" maxlength="100"/>
+          </div>
+          <div id="lab-search-results" class="list-container">
+            <div class="empty-state">Enter a name, hospital number, or phone number to search.</div>
+          </div>
+          <div id="lab-search-pagination"></div>
+          <div class="no-patient-note" style="margin-top:1rem; padding:1rem; background:#fff8e1; border-radius:8px; border-left:4px solid #ffc107;">
+            <strong>⚠️ Patient not found?</strong><br/>
+            If a patient is not in the system, please contact the <strong>Front Desk</strong>.
+          </div>
+        </section>
+
+        <!-- PATIENT FILE -->
+        <section id="view-patient-file" class="view-section" style="display:none">
+          <div class="view-header">
+            <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+              <h2>Patient File</h2>
+              <button class="btn btn-secondary btn-sm" id="lab-back-btn">← Back to Search</button>
+            </div>
+            <p class="view-subtitle">Shared patient record — your write access is limited to laboratory results.</p>
+          </div>
+          <div id="lab-patient-file-container">
+            <div class="empty-state">No patient selected.</div>
+          </div>
+        </section>
+
       </div>
-
-      <!-- ═══ INBOX VIEW ═══ -->
-      <div id="view-inbox" class="view-section" style="display:none">
-        <div class="view-header">
-          <h2>Inbox</h2>
-          <p class="view-subtitle">Patient files and lab requests from doctors</p>
-        </div>
-        <div class="filter-bar">
-          <button class="filter-chip active" data-inbox-filter="active">Active</button>
-          <button class="filter-chip" data-inbox-filter="all">All</button>
-          <button class="filter-chip" data-inbox-filter="completed">Completed</button>
-        </div>
-        <div id="inbox-list"></div>
-      </div>
-
-      <!-- ═══ LAB ORDERS QUEUE VIEW ═══ -->
-      <div id="view-orders" class="view-section" style="display:none">
-        <div class="view-header">
-          <h2>Lab Orders Queue</h2>
-          <p class="view-subtitle">Manage and process laboratory orders</p>
-        </div>
-        <div class="filter-bar">
-          <button class="filter-chip active" data-order-filter="all">All</button>
-          <button class="filter-chip" data-order-filter="pending">Pending</button>
-          <button class="filter-chip" data-order-filter="assigned">Assigned to Me</button>
-          <button class="filter-chip" data-order-filter="in_progress">In Progress</button>
-          <button class="filter-chip" data-order-filter="completed">Completed</button>
-        </div>
-        <div id="orders-list"></div>
-      </div>
-
-      <!-- ═══ ENTER RESULTS VIEW ═══ -->
-      <div id="view-enter-results" class="view-section" style="display:none">
-        <div class="view-header">
-          <h2>Enter Results</h2>
-          <p class="view-subtitle">Record laboratory test results</p>
-        </div>
-        <div class="dispense-search-bar">
-          <input type="text" class="search-input" id="results-order-search" placeholder="Enter lab order number…"/>
-          <button class="btn btn-primary" id="results-search-btn">Search</button>
-        </div>
-        <div id="results-entry-area"></div>
-      </div>
-
-      <!-- ═══ MY RESULTS VIEW ═══ -->
-      <div id="view-my-results" class="view-section" style="display:none">
-        <div class="view-header">
-          <h2>My Results</h2>
-          <p class="view-subtitle">All results you have performed</p>
-        </div>
-        <div class="filter-bar">
-          <button class="filter-chip active" data-result-filter="all">All</button>
-          <button class="filter-chip" data-result-filter="draft">Draft</button>
-          <button class="filter-chip" data-result-filter="finalized">Finalized</button>
-          <button class="filter-chip" data-result-filter="amended">Amended</button>
-        </div>
-        <div id="my-results-list"></div>
-      </div>
-
-    </div><!-- /.page-content -->
-  </main>
-</div>
-
-<!-- ═══════════════════ MODALS ═══════════════════ -->
-
-<!-- Inbox Patient Panel -->
-<div class="modal-overlay" id="patient-panel-overlay">
-  <div class="modal modal-lg">
-    <div class="modal-header">
-      <h3>Patient &amp; Lab Orders</h3>
-      <button class="modal-close" id="patient-panel-close">✕</button>
-    </div>
-    <div class="modal-body" id="patient-panel-content"></div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" id="patient-panel-dismiss">Close</button>
-    </div>
+    </main>
   </div>
-</div>
-
-<!-- Amend Result Modal -->
-<div class="modal-overlay" id="amend-modal-overlay">
-  <div class="modal">
-    <div class="modal-header">
-      <h3>Amend Result</h3>
-      <button class="modal-close" id="amend-modal-close">✕</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="amend-result-id"/>
-      <div class="form-group">
-        <label class="form-label">Amendment Note <span class="required">*</span></label>
-        <textarea class="form-textarea" id="amend-note" rows="4" placeholder="Describe the reason for amendment and the corrected finding…"></textarea>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Corrected Result Value <span class="required">*</span></label>
-        <input type="text" class="form-input" id="amend-result-value" placeholder="Enter corrected value"/>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Unit</label>
-        <input type="text" class="form-input" id="amend-result-unit"/>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Reference Range</label>
-        <input type="text" class="form-input" id="amend-reference-range"/>
-      </div>
-      <div class="form-group form-check">
-        <input type="checkbox" id="amend-is-abnormal" class="form-check-input"/>
-        <label for="amend-is-abnormal" class="form-check-label">Mark as Abnormal</label>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" id="amend-modal-cancel">Cancel</button>
-      <button class="btn btn-warning" id="amend-modal-confirm">Submit Amendment</button>
-    </div>
-  </div>
-</div>
-
-<script type="module" src="../js/laboratory.js"></script>
+  <script type="module" src="../js/laboratory.js"></script>
 </body>
 </html>

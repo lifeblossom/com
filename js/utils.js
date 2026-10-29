@@ -289,11 +289,24 @@ export function showToast(message, type = 'info', duration = 4000) {
 
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  toast.innerHTML = `
-    <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '⚠' : 'ℹ'}</span>
-    <span class="toast-message">${escapeHtml(message)}</span>
-    <button class="toast-close" onclick="this.parentElement.remove()">×</button>
-  `;
+
+  const icon = document.createElement('span');
+  icon.className = 'toast-icon';
+  icon.textContent = type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '⚠' : 'ℹ';
+
+  const msg = document.createElement('span');
+  msg.className = 'toast-message';
+  msg.textContent = message;
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'toast-close';
+  closeBtn.textContent = '×';
+  closeBtn.setAttribute('aria-label', 'Dismiss notification');
+  closeBtn.addEventListener('click', () => toast.remove());
+
+  toast.appendChild(icon);
+  toast.appendChild(msg);
+  toast.appendChild(closeBtn);
 
   container.appendChild(toast);
 

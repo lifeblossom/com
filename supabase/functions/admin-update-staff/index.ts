@@ -53,8 +53,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const corsPreflight = handleCors(req);
   if (corsPreflight) return corsPreflight;
 
+  const requestOrigin = req.headers.get('Origin');
+
   if (req.method !== 'POST') {
-    return errorResponse('Method Not Allowed. Expected POST.', 405);
+    return errorResponse('Method Not Allowed. Expected POST.', 405, undefined, {}, requestOrigin);
   }
 
   try {
@@ -65,13 +67,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
       console.error('Missing required Supabase environment variables');
-      return errorResponse('Internal server configuration error', 500);
+      return errorResponse('Internal server configuration error', 500, undefined, {}, requestOrigin);
     }
 
     // 1. Verify caller Bearer token & verify caller is active administrator
     const authHeader = req.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return errorResponse('Missing or invalid Authorization header. Bearer token required.', 401);
+      return errorResponse('Missing or invalid Authorization header. Bearer token required.', 401, undefined, {}, requestOrigin);
     }
 
     const anonClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -86,7 +88,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (authError || !callerUser) {
       console.warn('Caller authentication failed:', authError?.message);
-      return errorResponse('Invalid or expired authentication session', 401);
+      return errorResponse('Invalid or expired authentication session', 401, undefined, {}, requestOrigin);
     }
 
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -101,26 +103,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (callerProfileError || !callerProfile) {
       console.warn(`Profile lookup failed for caller ${callerUser.id}:`, callerProfileError?.message);
-      return errorResponse('Caller administrative profile not found', 403);
+      return errorResponse('Caller administrative profile not found', 403, undefined, {}, requestOrigin);
     }
 
     if (callerProfile.role !== 'admin') {
-      return errorResponse('Forbidden: Caller does not have administrative privileges', 403);
+      return errorResponse('Forbidden: Caller does not have administrative privileges', 403, undefined, {}, requestOrigin);
     }
 
     if (callerProfile.status !== 'active') {
-      return errorResponse('Forbidden: Administrator account is not active', 403);
+      return errorResponse('Forbidden: Administrator account is not active', 403, undefined, {}, requestOrigin);
     }
 
     // Validate request JSON payload
     const { data: body, error: parseError } = await safeParseJson<UpdateStaffBody>(req);
     if (parseError || !body) {
-      return errorResponse(parseError || 'Invalid JSON body', 400);
+      return errorResponse(parseError || 'Invalid JSON body', 400, undefined, {}, requestOrigin);
     }
 
     // 2. Validate target_user_id is a valid UUID
     if (!body.target_user_id || !isValidUUID(body.target_user_id)) {
-      return errorResponse('Valid target_user_id (UUID) is required', 400);
+      return errorResponse('Valid target_user_id (UUID) is required', 400, undefined, {}, requestOrigin);
     }
     const targetUserId = body.target_user_id.trim();
 
@@ -133,31 +135,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (fetchError) {
       console.error('Error fetching target profile:', fetchError.message);
-      return errorResponse('Database query failed', 500);
+      return errorResponse('Database query failed', 500, undefined, {}, requestOrigin);
     }
 
     if (!targetProfile) {
-      return errorResponse('Staff member profile not found', 404);
+      return errorResponse('Staff member profile not found', 404, undefined, {}, requestOrigin);
     }
 
     // 3. Prevent caller from changing their own role
     if (callerUser.id === targetUserId && body.role && body.role !== targetProfile.role) {
-      return errorResponse('Administrators cannot change their own role', 403);
+      return errorResponse('Administrators cannot change their own role', 403, undefined, {}, requestOrigin);
     }
 
     // Prevent administrator from deactivating themselves
     if (callerUser.id === targetUserId && body.status && body.status !== 'active') {
-      return errorResponse('Administrators cannot suspend or deactivate their own account', 403);
+      return errorResponse('Administrators cannot suspend or deactivate their own account', 403, undefined, {}, requestOrigin);
     }
 
     // 4. Prevent changing role to 'admin' through this function
     if (body.role === 'admin') {
-      return errorResponse('Changing role to administrator through this function is strictly prohibited', 403);
+      return errorResponse('Changing role to administrator through this function is strictly prohibited', 403, undefined, {}, requestOrigin);
     }
 
     // If target profile is already admin and caller is targeting someone else, protect admin profiles
     if (targetProfile.role === 'admin' && callerUser.id !== targetUserId) {
-      return errorResponse('Modifying administrator profiles through this staff endpoint is not permitted', 403);
+      return errorResponse('Modifying administrator profiles through this staff endpoint is not permitted', 403, undefined, {}, requestOrigin);
     }
 
     // Validate role if specified
@@ -165,7 +167,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (!ALLOWED_STAFF_ROLES.includes(body.role as StaffRole)) {
         return errorResponse(
           `Invalid role specified. Must be one of: ${ALLOWED_STAFF_ROLES.join(', ')}`,
-          400
+          400,
+          undefined,
+          {},
+          requestOrigin
         );
       }
     }
@@ -175,7 +180,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (!VALID_STATUSES.includes(body.status)) {
         return errorResponse(
           `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`,
-          400
+          400,
+          undefined,
+          {},
+          requestOrigin
         );
       }
     }
@@ -190,12 +198,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (isBecomingActive) {
       const quotaCheck = await checkStaffAccountLimit(adminClient, effectiveRole, targetUserId);
       if (quotaCheck.error) {
-        return errorResponse(quotaCheck.error, 500);
+        return errorResponse(quotaCheck.error, 500, undefined, {}, requestOrigin);
       }
       if (!quotaCheck.allowed) {
         return errorResponse(
           `Active staff quota exceeded for role '${effectiveRole}'. Maximum allowed active accounts is ${quotaCheck.maxLimit}.`,
-          409
+          409,
+          undefined,
+          {},
+          requestOrigin
         );
       }
     }
@@ -213,13 +224,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         if (checkIdError) {
           console.error('Error verifying unique staff_id:', checkIdError.message);
-          return errorResponse('Database verification failed', 500);
+          return errorResponse('Database verification failed', 500, undefined, {}, requestOrigin);
         }
 
         if (existingStaffId) {
           return errorResponse(
             `Staff ID '${cleanStaffId}' is already assigned to another staff member`,
-            409
+            409,
+            undefined,
+            {},
+            requestOrigin
           );
         }
       }
@@ -232,7 +246,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (body.full_name !== undefined) {
       if (typeof body.full_name !== 'string' || body.full_name.trim() === '') {
-        return errorResponse('Full name cannot be empty', 400);
+        return errorResponse('Full name cannot be empty', 400, undefined, {}, requestOrigin);
       }
       updates.full_name = body.full_name.trim();
     }
@@ -267,7 +281,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (updateError || !updatedProfile) {
       console.error('Failed to update staff profile:', updateError?.message);
-      return errorResponse('Failed to update staff profile in database', 500);
+      return errorResponse('Failed to update staff profile in database', 500, undefined, {}, requestOrigin);
     }
 
     // Sync user_metadata in Auth if full_name or role changed
@@ -327,10 +341,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
         profile: updatedProfile,
       },
       200,
-      getRateLimitHeaders()
+      getRateLimitHeaders(),
+      requestOrigin
     );
   } catch (err) {
     console.error('Unhandled exception in admin-update-staff:', err);
-    return errorResponse('Internal server error', 500);
+    return errorResponse('Internal server error', 500, undefined, {}, requestOrigin);
   }
 });

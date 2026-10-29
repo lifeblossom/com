@@ -189,12 +189,25 @@ function initUI() {
 function setupModalClose(overlayId, closeId, cancelId) {
   const close = () => {
     const overlay = document.getElementById(overlayId);
-    if (overlay) overlay.classList.remove('active');
+    if (overlay) {
+      overlay.classList.remove('active');
+      overlay.setAttribute('aria-hidden', 'true');
+      // Return focus to the button that opened the modal if possible
+      const trigger = document.querySelector(`[data-opens="${overlayId}"]`);
+      if (trigger) trigger.focus();
+    }
   };
   document.getElementById(closeId)?.addEventListener('click', close);
   document.getElementById(cancelId)?.addEventListener('click', close);
   document.getElementById(overlayId)?.addEventListener('click', e => {
     if (e.target === document.getElementById(overlayId)) close();
+  });
+  // Allow Escape key to close
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const overlay = document.getElementById(overlayId);
+      if (overlay?.classList.contains('active')) close();
+    }
   });
 }
 
@@ -525,7 +538,14 @@ function renderStaffRow(s) {
 function openAddStaffModal() {
   const form = document.getElementById('add-staff-form');
   if (form) form.reset();
-  document.getElementById('add-staff-modal-overlay')?.classList.add('active');
+  const overlay = document.getElementById('add-staff-modal-overlay');
+  if (overlay) {
+    overlay.classList.add('active');
+    overlay.removeAttribute('aria-hidden');
+    // Move focus to first interactive element inside modal
+    const firstInput = overlay.querySelector('input, select, button:not([type="button"])');
+    if (firstInput) setTimeout(() => firstInput.focus(), 50);
+  }
 }
 
 async function handleAddStaff() {
@@ -572,7 +592,8 @@ async function handleAddStaff() {
     }
 
     showToast('Staff account created successfully. No invitation email was sent.', 'success');
-    document.getElementById('add-staff-modal-overlay')?.classList.remove('active');
+    const addOverlay = document.getElementById('add-staff-modal-overlay');
+    if (addOverlay) { addOverlay.classList.remove('active'); addOverlay.setAttribute('aria-hidden', 'true'); }
     form.reset();
     viewLoaded.staff = false;
     await loadStaff();
@@ -606,6 +627,13 @@ function openEditStaffModal(staffMember) {
   if (phoneEl) phoneEl.value = staffMember.phone || '';
 
   document.getElementById('edit-staff-modal-overlay')?.classList.add('active');
+  const editOverlay = document.getElementById('edit-staff-modal-overlay');
+  if (editOverlay) {
+    editOverlay.classList.add('active');
+    editOverlay.removeAttribute('aria-hidden');
+    const firstInput = editOverlay.querySelector('input, select');
+    if (firstInput) setTimeout(() => firstInput.focus(), 50);
+  }
 }
 
 async function handleEditStaff() {
@@ -641,7 +669,8 @@ async function handleEditStaff() {
   }
 
   showToast('Staff profile updated', 'success');
-  document.getElementById('edit-staff-modal-overlay')?.classList.remove('active');
+  const editOverlay2 = document.getElementById('edit-staff-modal-overlay');
+  if (editOverlay2) { editOverlay2.classList.remove('active'); editOverlay2.setAttribute('aria-hidden', 'true'); }
   editStaffUserId = null;
   viewLoaded.staff = false;
   await loadStaff();

@@ -18,6 +18,12 @@ import {
   getMyInbox, countUnreadInbox,
   acknowledgeTransfer, updateTransferStatus,
 } from './api/transfers-api.js';
+import { PatientFile } from './patient-file.js';
+
+// ─── Shared Patient File State ────────────────────────────────────────────────
+let pharmPatientFileComponent = null;
+let pharmSearchPage = 1;
+let pharmSearchQuery = '';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let currentProfile   = null;
@@ -174,6 +180,9 @@ function initUI(profile) {
 
   // Patient panel modal
   setupModalClose('patient-panel-overlay', 'patient-panel-close', 'patient-panel-dismiss');
+
+  // ── NEW: Patient Search + Shared File ──────────────────────────────────────
+  initPatientSearchAndFile(profile);
 }
 
 function setupModalClose(overlayId, closeId, cancelId) {
@@ -209,6 +218,8 @@ function switchView(view) {
     inventory:     'Medicine Inventory',
     dispense:      'Dispense Medication',
     movements:     'Inventory Movements',
+    search:        'Patient Search',
+    'patient-file': 'Patient File',
   };
   document.getElementById('page-title').textContent = titles[view] || 'Pharmacy';
 
@@ -1154,6 +1165,117 @@ async function loadMovements() {
       perPage:     MV_PER_PAGE,
       onPageChange: page => { mvPage = page; loadMovements(); },
     });
+  }
+}
+
+// ─── Patient Search & Shared File (Pharmacist) ────────────────────────────────
+const PHARM_PAGE_SIZE = 20;
+
+function initPatientSearchAndFile(profile) {
+  // Patient search input
+  const searchInput = document.getElementById('pharm-patient-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', debounce(() => {
+      pharmSearchQuery = searchInput.value.trim();
+      pharmSearchPage = 1;
+      doPharmPatientSearch();
+    }, 400));
+  }
+
+  // Back button
+  document.getElementById('pharm-back-btn')?.addEventListener('click', () => switchView('search'));
+
+  // Initialize patient file component
+  const container = document.getElementById('pharm-patient-file-container');
+  if (container) {
+    pharmPatientFileComponent = new PatientFile(container, {
+      role: profile.role,
+      userId: currentProfile?.id,
+      userName: profile.full_name,
+    });
+  }
+}
+
+async function doPharmPatientSearch() {
+  const container = document.getElementById('pharm-search-results');
+  if (!container) return;
+  container.innerHTML = '<div class="loading-state">Searching…</div>';
+
+  const q = pharmSearchQuery;
+  const offset = (pharmSearchPage - 1) * PHARM_PAGE_SIZE;
+
+  const { data, error, count } = await supabase
+    .from('patients')
+    .select('id, hospital_number, first_name, middle_name, last_name, date_of_birth, sex, phone, created_at', { count: 'exact' })
+    .or(q
+      ? `hospital_number.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%`
+      : 'id.neq.00000000-0000-0000-0000-000000000000'
+    )
+    .order('created_at', { ascending: false })
+    .range(offset, offset + PHARM_PAGE_SIZE - 1);
+
+  if (error) {
+    container.innerHTML = `<div class="error-state">Search failed: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  if (!data?.length) {
+    container.innerHTML = '<div class="empty-state">No patients found.</div>';
+    document.getElementById('pharm-search-pagination').innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = data.map(patient => {
+    const name = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ');
+    const age = patient.date_of_birth ? `${calculateAge(patient.date_of_birth)} yrs` : '—';
+    return `
+      <div class="list-item">
+        <div class="list-item-body">
+          <div class="list-item-title">${escapeHtml(name)}</div>
+          <div class="list-item-meta">
+            🏥 ${escapeHtml(patient.hospital_number)} ·
+            👤 ${escapeHtml(patient.sex || '—')}, ${age} ·
+            📞 ${escapeHtml(patient.phone || '—')} ·
+            Registered: ${formatDate(patient.created_at, 'date')}
+          </div>
+        </div>
+        <div class="list-item-aside">
+          <button class="btn btn-primary btn-sm pharm-open-patient-btn" data-patient-id="${escapeHtml(patient.id)}">
+            Open File
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+
+  container.querySelectorAll('.pharm-open-patient-btn').forEach(btn => {
+    btn.addEventListener('click', () => pharmOpenPatientFile(btn.dataset.patientId));
+  });
+
+  // Pagination
+  const pagEl = document.getElementById('pharm-search-pagination');
+  if (pagEl) {
+    const totalPages = Math.ceil((count || 0) / PHARM_PAGE_SIZE);
+    if (totalPages > 1) {
+      pagEl.innerHTML = `
+        <div class="pagination">
+          <button class="btn btn-sm btn-secondary" ${pharmSearchPage <= 1 ? 'disabled' : ''} id="pharm-pag-prev">← Prev</button>
+          <span>Page ${pharmSearchPage} of ${totalPages}</span>
+          <button class="btn btn-sm btn-secondary" ${pharmSearchPage >= totalPages ? 'disabled' : ''} id="pharm-pag-next">Next →</button>
+        </div>`;
+      document.getElementById('pharm-pag-prev')?.addEventListener('click', () => { pharmSearchPage--; doPharmPatientSearch(); });
+      document.getElementById('pharm-pag-next')?.addEventListener('click', () => { pharmSearchPage++; doPharmPatientSearch(); });
+    } else {
+      pagEl.innerHTML = '';
+    }
+  }
+}
+
+async function pharmOpenPatientFile(patientId) {
+  const badge = document.getElementById('patient-file-badge');
+  if (badge) badge.style.display = '';
+  switchView('patient-file');
+  if (pharmPatientFileComponent) {
+    await pharmPatientFileComponent.load(patientId);
   }
 }
 

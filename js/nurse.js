@@ -1,40 +1,63 @@
 /**
- * Nurse dashboard for assigned patient access and recording vitals.
+ * Life Blossom Care and Cure Hospital — EMR System
+ * Nurse Dashboard Controller — Shared Patient Record Workflow
+ *
+ * Nurses can:
+ *   - Search any registered patient
+ *   - View the full shared patient file
+ *   - Add vital signs (Section B write access)
+ *   - Add nursing notes (Section B write access)
+ *
+ * Nurses CANNOT:
+ *   - Create new patient records
+ *   - Edit front-desk demographics
+ *   - Create lab orders, prescriptions, or dispense medication
  */
 
 import { requireAuth, signOut } from './auth.js';
-import { getInitials, formatDate, formatRole, showToast, debounce, escapeHtml } from './utils.js';
-import { searchPatients } from './api/patients-api.js';
-import { getMyInbox } from './api/transfers-api.js';
-import { getPatientVitals, recordVitals } from './api/clinical-api.js';
+import { getInitials, formatRole, formatDate, calculateAge, showToast, debounce, escapeHtml } from './utils.js';
 import { supabase } from './supabase-client.js';
+import { PatientFile } from './patient-file.js';
 
-let selectedPatient = null;
-let selectedEncounterId = null;
+// ─── State ───────────────────────────────────────────────────────────────────
+let currentProfile = null;
+let currentUser = null;
+let currentView = 'overview';
+let searchPage = 1;
+let searchQuery = '';
+let selectedPatientId = null;
+let patientFileComponent = null;
 
+const PAGE_SIZE = 20;
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   const profile = await requireAuth();
-  if (!profile) {
-    window.location.href = '../index.html';
-    return;
-  }
-  if (profile.role !== 'nurse') {
-    window.location.href = '../index.html';
-    return;
-  }
+  if (!profile) { window.location.href = '../index.html'; return; }
+  if (profile.role !== 'nurse') { window.location.href = '../index.html'; return; }
 
+  const { data: { user } } = await supabase.auth.getUser();
+  currentUser = user;
+  currentProfile = profile;
+
+  initUI(profile);
+  switchView('overview');
+}
+
+// ─── UI Bootstrap ─────────────────────────────────────────────────────────────
+function initUI(profile) {
   const initials = getInitials(profile.full_name);
-  document.getElementById('sidebar-avatar').textContent = initials;
-  document.getElementById('topbar-avatar').textContent = initials;
+  ['sidebar-avatar', 'topbar-avatar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = initials;
+  });
   document.getElementById('sidebar-name').textContent = profile.full_name;
   document.getElementById('sidebar-role').textContent = formatRole(profile.role);
   document.getElementById('topbar-name').textContent = profile.full_name;
   document.getElementById('dropdown-name').textContent = profile.full_name;
   document.getElementById('dropdown-role').textContent = formatRole(profile.role);
 
-  document.querySelectorAll('.nav-item[data-view], .quick-action-btn[data-view]').forEach(button => {
-    button.addEventListener('click', () => switchView(button.dataset.view));
-  });
+  // Sidebar toggle
   document.getElementById('sidebar-toggle').addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('mobile-open');
     document.getElementById('sidebar-overlay').classList.toggle('visible');
@@ -43,197 +66,190 @@ async function init() {
     document.getElementById('sidebar').classList.remove('mobile-open');
     document.getElementById('sidebar-overlay').classList.remove('visible');
   });
-  document.getElementById('profile-btn').addEventListener('click', () => {
-    document.getElementById('profile-menu').classList.toggle('open');
+
+  // Profile dropdown
+  document.getElementById('profile-btn').addEventListener('click', () =>
+    document.getElementById('profile-menu').classList.toggle('open'));
+  document.addEventListener('click', e => {
+    const menu = document.getElementById('profile-menu');
+    if (menu && !menu.contains(e.target)) menu.classList.remove('open');
   });
+
+  // Sign out
   document.getElementById('sign-out-btn').addEventListener('click', handleSignOut);
   document.getElementById('dropdown-signout').addEventListener('click', handleSignOut);
-  document.getElementById('patient-search').addEventListener('input', debounce(event => {
-    loadPatients(event.target.value.trim());
-  }, 350));
-  document.getElementById('vitals-form').addEventListener('submit', saveVitals);
-  await loadInbox();
+
+  // Nav items
+  document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+    el.addEventListener('click', e => { e.preventDefault(); switchView(el.dataset.view); });
+  });
+
+  // Quick action buttons
+  document.querySelectorAll('.quick-action-btn[data-view]').forEach(el => {
+    el.addEventListener('click', () => switchView(el.dataset.view));
+  });
+
+  // Patient search
+  const searchInput = document.getElementById('nurse-patient-search');
+  searchInput.addEventListener('input', debounce(() => {
+    searchQuery = searchInput.value.trim();
+    searchPage = 1;
+    doPatientSearch();
+  }, 400));
+
+  // Back to search
+  document.getElementById('nurse-back-to-search-btn').addEventListener('click', () => {
+    switchView('search');
+  });
+
+  // Initialize patient file component (container exists in DOM)
+  const container = document.getElementById('nurse-patient-file-container');
+  patientFileComponent = new PatientFile(container, {
+    role: profile.role,
+    userId: currentUser?.id,
+    userName: profile.full_name,
+  });
 }
 
+// ─── View Switching ───────────────────────────────────────────────────────────
 function switchView(view) {
-  document.querySelectorAll('.view-section').forEach(section => {
-    section.style.display = section.id === `view-${view}` ? 'block' : 'none';
+  currentView = view;
+  document.querySelectorAll('.view-section').forEach(s => {
+    s.style.display = s.id === `view-${view}` ? 'block' : 'none';
   });
-  document.querySelectorAll('.nav-item[data-view]').forEach(button => {
-    button.classList.toggle('active', button.dataset.view === view);
+  document.querySelectorAll('.nav-item[data-view]').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === view);
   });
-  const titles = { overview: 'Nurse Dashboard', inbox: 'Patient Transfers', patients: 'Accessible Patients', vitals: 'Patient Vitals' };
+  const titles = {
+    overview: 'Nurse Dashboard',
+    search: 'Patient Search',
+    'patient-file': 'Patient File',
+  };
   document.getElementById('page-title').textContent = titles[view] || 'Nurse Dashboard';
   document.getElementById('sidebar').classList.remove('mobile-open');
   document.getElementById('sidebar-overlay').classList.remove('visible');
-  if (view === 'inbox') loadInbox();
-  if (view === 'patients') loadPatients(document.getElementById('patient-search').value.trim());
+
+  if (view === 'search' && !searchQuery) {
+    doPatientSearch();
+  }
 }
 
+// ─── Sign Out ─────────────────────────────────────────────────────────────────
 async function handleSignOut() {
   await signOut();
   window.location.href = '../index.html';
 }
 
-async function loadInbox() {
-  const { data, error } = await getMyInbox('active');
-  const inbox = document.getElementById('inbox-list');
-  const overview = document.getElementById('overview-inbox');
+// ─── Patient Search ───────────────────────────────────────────────────────────
+async function doPatientSearch() {
+  const container = document.getElementById('nurse-search-results');
+  container.innerHTML = '<div class="loading-state">Searching…</div>';
+
+  const q = searchQuery;
+  const offset = (searchPage - 1) * PAGE_SIZE;
+
+  const { data, error, count } = await supabase
+    .from('patients')
+    .select('id, hospital_number, first_name, middle_name, last_name, date_of_birth, sex, phone, created_at', { count: 'exact' })
+    .or(q
+      ? `hospital_number.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%`
+      : 'id.neq.00000000-0000-0000-0000-000000000000'
+    )
+    .order('created_at', { ascending: false })
+    .range(offset, offset + PAGE_SIZE - 1);
+
   if (error) {
-    inbox.innerHTML = `<div class="error-state">${escapeHtml(error.message)}</div>`;
-    overview.innerHTML = `<div class="error-state">${escapeHtml(error.message)}</div>`;
+    container.innerHTML = `<div class="error-state">Search failed: ${escapeHtml(error.message)}</div>`;
     return;
   }
 
-  const items = data || [];
-  const badge = document.getElementById('inbox-badge');
-  badge.textContent = String(items.length);
-  badge.style.display = items.length ? '' : 'none';
-  const html = items.length ? items.map(transfer => {
-    const patient = transfer.patient;
-    const patientName = `${patient?.first_name || ''} ${patient?.middle_name ? `${patient.middle_name} ` : ''}${patient?.last_name || ''}`.trim();
+  if (!data?.length) {
+    container.innerHTML = '<div class="empty-state">No patients found. Check the spelling or try a different search term.</div>';
+    document.getElementById('nurse-search-pagination').innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = data.map(patient => {
+    const name = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ');
+    const age = patient.date_of_birth ? `${calculateAge(patient.date_of_birth)} yrs` : '—';
     return `
       <div class="list-item">
         <div class="list-item-body">
-          <div class="list-item-title">${escapeHtml(patientName || 'Patient')} · ${escapeHtml(patient?.hospital_number || '—')}</div>
-          <div class="list-item-meta">From ${escapeHtml(transfer.sender?.full_name || 'staff')} · ${escapeHtml(transfer.status)} · ${formatDate(transfer.created_at, 'datetime')}</div>
-          ${transfer.message ? `<div class="list-item-note">${escapeHtml(transfer.message)}</div>` : ''}
+          <div class="list-item-title">${escapeHtml(name)}</div>
+          <div class="list-item-meta">
+            🏥 ${escapeHtml(patient.hospital_number)} · 
+            👤 ${escapeHtml(patient.sex || '—')}, ${age} · 
+            📞 ${escapeHtml(patient.phone || '—')} · 
+            Registered: ${formatDate(patient.created_at, 'date')}
+          </div>
         </div>
-        <div class="list-item-aside"><button class="btn btn-primary btn-sm open-patient-btn" data-transfer-id="${escapeHtml(transfer.id)}">Open patient</button></div>
+        <div class="list-item-aside">
+          <button class="btn btn-primary btn-sm open-patient-btn" data-patient-id="${escapeHtml(patient.id)}">
+            Open File
+          </button>
+        </div>
       </div>`;
-  }).join('') : '<div class="empty-state">No active patient transfers.</div>';
+  }).join('');
 
-  inbox.innerHTML = html;
-  overview.innerHTML = html;
-  [inbox, overview].forEach(container => container.querySelectorAll('.open-patient-btn').forEach(button => {
-    button.addEventListener('click', () => {
-      const transfer = items.find(item => item.id === button.dataset.transferId);
-      if (transfer?.patient) selectPatient(transfer.patient, transfer.encounter_id);
-    });
-  }));
-}
-
-async function loadPatients(query) {
-  const container = document.getElementById('patients-list');
-  container.innerHTML = '<div class="loading-state">Loading authorized patient records...</div>';
-  const { data, error } = await searchPatients(query);
-  if (error) {
-    container.innerHTML = `<div class="error-state">${escapeHtml(error.message)}</div>`;
-    return;
-  }
-  if (!data?.length) {
-    container.innerHTML = '<div class="empty-state">No accessible patients found. Open a patient from an assigned transfer.</div>';
-    return;
-  }
-  container.innerHTML = data.map(patient => `
-    <div class="list-item">
-      <div class="list-item-body">
-        <div class="list-item-title">${escapeHtml(`${patient.first_name} ${patient.last_name}`)}</div>
-        <div class="list-item-meta">${escapeHtml(patient.hospital_number)} · ${escapeHtml(patient.sex || '—')}</div>
-      </div>
-      <div class="list-item-aside"><button class="btn btn-primary btn-sm select-patient-btn" data-patient-id="${escapeHtml(patient.id)}">Select</button></div>
-    </div>`).join('');
-  container.querySelectorAll('.select-patient-btn').forEach(button => {
-    button.addEventListener('click', () => {
-      const patient = data.find(item => item.id === button.dataset.patientId);
-      if (patient) selectPatient(patient, null);
-    });
+  container.querySelectorAll('.open-patient-btn').forEach(btn => {
+    btn.addEventListener('click', () => openPatientFile(btn.dataset.patientId));
   });
+
+  // Pagination
+  renderSearchPagination(count);
 }
 
-function selectPatient(patient, encounterId) {
-  selectedPatient = patient;
-  selectedEncounterId = encounterId || null;
-  const name = `${patient.first_name || ''} ${patient.middle_name ? `${patient.middle_name} ` : ''}${patient.last_name || ''}`.trim();
-  document.getElementById('selected-patient').textContent = `${name} · ${patient.hospital_number || '—'}`;
-  switchView('vitals');
-  loadRecentVitals();
+function renderSearchPagination(totalCount) {
+  const pagEl = document.getElementById('nurse-search-pagination');
+  if (!totalCount || totalCount <= PAGE_SIZE) { pagEl.innerHTML = ''; return; }
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  pagEl.innerHTML = `
+    <div class="pagination">
+      <button class="btn btn-sm btn-secondary" ${searchPage <= 1 ? 'disabled' : ''} id="pag-prev">← Prev</button>
+      <span>Page ${searchPage} of ${totalPages}</span>
+      <button class="btn btn-sm btn-secondary" ${searchPage >= totalPages ? 'disabled' : ''} id="pag-next">Next →</button>
+    </div>`;
+  document.getElementById('pag-prev')?.addEventListener('click', () => { searchPage--; doPatientSearch(); });
+  document.getElementById('pag-next')?.addEventListener('click', () => { searchPage++; doPatientSearch(); });
 }
 
-async function loadRecentVitals() {
-  const container = document.getElementById('recent-vitals');
-  if (!selectedPatient) {
-    container.innerHTML = '<div class="empty-state">Select a patient to view measurements.</div>';
-    return;
-  }
-  container.innerHTML = '<div class="loading-state">Loading measurements...</div>';
-  const { data, error } = await getPatientVitals(selectedPatient.id, selectedEncounterId);
-  if (error) {
-    container.innerHTML = `<div class="error-state">${escapeHtml(error.message)}</div>`;
-    return;
-  }
-  if (!data?.length) {
-    container.innerHTML = '<div class="empty-state">No measurements recorded for this encounter.</div>';
-    return;
-  }
-  container.innerHTML = data.slice(0, 10).map(vital => `
+// ─── Open Patient File ────────────────────────────────────────────────────────
+async function openPatientFile(patientId) {
+  selectedPatientId = patientId;
+
+  // Show badge on nav
+  const badge = document.getElementById('patient-file-badge');
+  if (badge) badge.style.display = '';
+
+  // Update overview
+  updateOverviewCurrentPatient(patientId);
+
+  // Switch to file view and load
+  switchView('patient-file');
+  await patientFileComponent.load(patientId);
+}
+
+async function updateOverviewCurrentPatient(patientId) {
+  const container = document.getElementById('overview-current-patient');
+  const { data, error } = await supabase
+    .from('patients')
+    .select('id, hospital_number, first_name, middle_name, last_name, date_of_birth, sex, phone')
+    .eq('id', patientId)
+    .single();
+  if (error || !data) return;
+  const name = [data.first_name, data.middle_name, data.last_name].filter(Boolean).join(' ');
+  container.innerHTML = `
     <div class="list-item">
       <div class="list-item-body">
-        <div class="list-item-title">${vital.bp_systolic && vital.bp_diastolic ? `${vital.bp_systolic}/${vital.bp_diastolic} mmHg · ` : ''}${vital.pulse_rate ? `${vital.pulse_rate} bpm · ` : ''}${vital.temperature ? `${vital.temperature} °C` : 'Vitals'}</div>
-        <div class="list-item-meta">${formatDate(vital.created_at, 'datetime')} · ${escapeHtml(vital.recorded_by_profile?.full_name || 'Staff')}</div>
-        ${vital.notes ? `<div class="list-item-note">${escapeHtml(vital.notes)}</div>` : ''}
+        <div class="list-item-title">${escapeHtml(name)}</div>
+        <div class="list-item-meta">🏥 ${escapeHtml(data.hospital_number)} · 📞 ${escapeHtml(data.phone || '—')}</div>
       </div>
-    </div>`).join('');
+      <div class="list-item-aside">
+        <button class="btn btn-primary btn-sm" id="overview-open-file-btn">Open File</button>
+      </div>
+    </div>`;
+  document.getElementById('overview-open-file-btn')?.addEventListener('click', () => switchView('patient-file'));
 }
 
-function numericValue(id) {
-  const value = document.getElementById(id).value;
-  return value === '' ? null : Number(value);
-}
-
-async function saveVitals(event) {
-  event.preventDefault();
-  if (!selectedPatient) {
-    showToast('Select a patient before recording vitals.', 'warning');
-    return;
-  }
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
-  if (userError || !user) {
-    showToast(userError?.message || 'Your session has expired. Sign in again.', 'error');
-    return;
-  }
-
-  const payload = {
-    patient_id: selectedPatient.id,
-    encounter_id: selectedEncounterId,
-    recorded_by: user.id,
-    bp_systolic: numericValue('nurse-bp-systolic'),
-    bp_diastolic: numericValue('nurse-bp-diastolic'),
-    pulse_rate: numericValue('nurse-pulse'),
-    respiratory_rate: numericValue('nurse-resp'),
-    temperature: numericValue('nurse-temp'),
-    oxygen_saturation: numericValue('nurse-spo2'),
-    weight: numericValue('nurse-weight'),
-    height: numericValue('nurse-height'),
-    blood_glucose: numericValue('nurse-glucose'),
-    pain_score: numericValue('nurse-pain'),
-    notes: document.getElementById('nurse-vitals-notes').value.trim() || null,
-  };
-  const measured = Object.entries(payload).some(([key, value]) =>
-    !['patient_id', 'encounter_id', 'recorded_by', 'notes'].includes(key) && value !== null
-  );
-  if (!measured) {
-    showToast('Enter at least one measurement.', 'warning');
-    return;
-  }
-
-  const button = document.getElementById('save-vitals-btn');
-  button.disabled = true;
-  try {
-    const { error } = await recordVitals(payload);
-    if (error) {
-      showToast(error.message, 'error');
-      return;
-    }
-    document.getElementById('vitals-form').reset();
-    showToast('Vitals recorded.', 'success');
-    loadRecentVitals();
-  } catch (err) {
-    console.error('Recording patient vitals failed:', err);
-    showToast('Unable to record vitals. Please try again.', 'error');
-  } finally {
-    button.disabled = false;
-  }
-}
-
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', init);
