@@ -283,36 +283,31 @@ async function loadOverview() {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
   const in30Days   = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  const [pendingRes, lowRes, expiringRes, dispensedRes] = await Promise.all([
+  const [pendingRes, expiringRes, dispensedRes] = await Promise.all([
     supabase.from('prescriptions')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'active'),
-    supabase.from('medicines')
-      .select('id', { count: 'exact', head: true })
-      .eq('is_active', true)
-      .filter('stock_quantity', 'lte', supabase.raw('"reorder_level"')),
     supabase.from('medicine_batches')
       .select('id', { count: 'exact', head: true })
       .lte('expiry_date', in30Days)
-      .gt('quantity_remaining', 0),
+      .gt('quantity', 0),
     supabase.from('inventory_movements')
       .select('id', { count: 'exact', head: true })
-      .eq('movement_type', 'dispense')
-      .gte('performed_at', todayStart),
+      .eq('movement_type', 'dispensing')
+      .gte('created_at', todayStart),
   ]);
 
   setStatEl('stat-pending-rx',    pendingRes.count    ?? 0);
   setStatEl('stat-dispensed-today', dispensedRes.count ?? 0);
   setStatEl('stat-expiring',      expiringRes.count   ?? 0);
 
-  // Low stock count: medicines where stock_quantity <= reorder_level
-  // Using a plain query because supabase js doesn't support column-to-column filters directly
-  const { data: lowMeds } = await supabase.from('medicines')
-    .select('id, medicine_name, stock_quantity, reorder_level')
+  // Low stock count: medicines where available_stock <= reorder_level
+  const { data: lowMeds } = await supabase.from('medicine_catalog')
+    .select('id, medicine_name, available_stock, reorder_level')
     .eq('is_active', true)
-    .order('stock_quantity', { ascending: true });
+    .order('available_stock', { ascending: true });
 
-  const trulyLow = (lowMeds || []).filter(m => m.stock_quantity <= m.reorder_level);
+  const trulyLow = (lowMeds || []).filter(m => (m.available_stock || 0) <= (m.reorder_level || 0));
   setStatEl('stat-low-stock', trulyLow.length);
 
   // ── Low stock list (top 5) ─────────────────────────────────────────────────
@@ -325,15 +320,15 @@ async function loadOverview() {
     return;
   }
   container.innerHTML = top5.map(m => {
-    const stockColor = m.stock_quantity === 0 ? 'var(--danger)' : 'var(--warning)';
+    const stockColor = (m.available_stock || 0) === 0 ? 'var(--danger)' : 'var(--warning)';
     return `
       <div class="list-item" style="padding:.6rem .75rem">
         <div class="list-item-body">
           <div class="list-item-title" style="font-size:.9rem">${escapeHtml(m.medicine_name)}</div>
-          <div class="list-item-meta">Reorder level: ${escapeHtml(String(m.reorder_level))}</div>
+          <div class="list-item-meta">Reorder level: ${escapeHtml(String(m.reorder_level || 0))}</div>
         </div>
         <div class="list-item-aside">
-          <span style="font-weight:700;color:${stockColor};font-size:.95rem">${escapeHtml(String(m.stock_quantity))}</span>
+          <span style="font-weight:700;color:${stockColor};font-size:.95rem">${escapeHtml(String(m.available_stock || 0))}</span>
           <span style="font-size:.75rem;color:var(--text-muted)">in stock</span>
         </div>
       </div>
@@ -479,7 +474,7 @@ async function openPatientPanel(transfer) {
       : prescriptions.map(rx => `
           <div style="background:var(--bg-secondary,#f8fafc);border:1px solid var(--border-color);border-radius:8px;padding:.75rem;margin-bottom:.6rem">
             <div style="font-weight:600;font-size:.875rem">
-              RX #${escapeHtml(rx.rx_number || rx.id.slice(0, 8))}
+              RX #${escapeHtml(rx.prescription_number || rx.rx_number || rx.id.slice(0, 8))}
               <span class="badge ${getStatusBadgeClass(rx.status)}" style="margin-left:.5rem">${escapeHtml(rx.status || '')}</span>
             </div>
             <div style="font-size:.78rem;color:var(--text-muted);margin:.2rem 0">
@@ -487,9 +482,12 @@ async function openPatientPanel(transfer) {
             </div>
             ${(rx.prescription_items || []).map(item => `
               <div style="font-size:.82rem;margin-top:.3rem">
-                💊 ${escapeHtml(item.medicine_name)} ${escapeHtml(item.strength || '')}
-                — ${escapeHtml(item.dosage || '')} ${escapeHtml(item.frequency || '')}
-                ${escapeHtml(item.duration ? `for ${item.duration}` : '')}
+                💊 <strong>${escapeHtml(item.medicine_name)}</strong> ${escapeHtml(item.strength || '')}
+                — ${escapeHtml(item.dosage || '')} · ${escapeHtml(item.route || '')} · ${escapeHtml(item.frequency || '')}
+                ${item.duration ? `· ${escapeHtml(item.duration)}` : ''}
+                ${item.quantity ? `· Qty: <strong>${escapeHtml(String(item.quantity))}</strong>` : ''}
+                ${item.quantity_dispensed ? `<span style="color:var(--success)"> (${escapeHtml(String(item.quantity_dispensed))} dispensed)</span>` : ''}
+                ${item.instructions ? `<div style="font-size:.76rem;color:var(--text-muted);margin-left:1.2rem"><em>Instructions: ${escapeHtml(item.instructions)}</em></div>` : ''}
               </div>
             `).join('')}
             <button class="btn btn-primary btn-xs" style="margin-top:.6rem" data-rx-id="${escapeHtml(rx.id)}">
@@ -559,7 +557,7 @@ function renderRxCard(rx) {
         <div class="list-item-avatar">${getInitials(name)}</div>
         <div style="flex:1">
           <div class="list-item-title">
-            RX #${escapeHtml(rx.rx_number || rx.id.slice(0, 8))} —
+            RX #${escapeHtml(rx.prescription_number || rx.rx_number || rx.id.slice(0, 8))} —
             ${escapeHtml(name)}
             <span class="text-muted" style="font-weight:400">· ${escapeHtml(patient.hospital_number || '—')}</span>
           </div>
@@ -569,11 +567,12 @@ function renderRxCard(rx) {
           <div style="margin-top:.4rem">
             ${items.map(item => `
               <div style="font-size:.82rem;margin-top:.25rem">
-                💊 ${escapeHtml(item.medicine_name)} ${escapeHtml(item.strength || '')}
-                — ${escapeHtml(item.dosage || '')} ${escapeHtml(item.frequency || '')}
+                💊 <strong>${escapeHtml(item.medicine_name)}</strong> ${escapeHtml(item.strength || '')}
+                — ${escapeHtml(item.dosage || '')} · ${escapeHtml(item.route || '')} · ${escapeHtml(item.frequency || '')}
                 ${item.duration ? `· ${escapeHtml(item.duration)}` : ''}
                 ${item.quantity ? `· Qty: <strong>${escapeHtml(String(item.quantity))}</strong>` : ''}
                 ${item.quantity_dispensed ? `<span style="color:var(--success)"> (${escapeHtml(String(item.quantity_dispensed))} dispensed)</span>` : ''}
+                ${item.instructions ? `<div style="font-size:.76rem;color:var(--text-muted);margin-left:1.2rem"><em>Instructions: ${escapeHtml(item.instructions)}</em></div>` : ''}
               </div>
             `).join('')}
           </div>
@@ -600,7 +599,7 @@ async function loadInventory() {
 
   const searchTerm = (document.getElementById('inventory-search')?.value || '').trim().toLowerCase();
 
-  let query = supabase.from('medicines')
+  let query = supabase.from('medicine_catalog')
     .select('*')
     .eq('is_active', true)
     .order('medicine_name', { ascending: true });
@@ -619,15 +618,15 @@ async function loadInventory() {
 
   // Client-side filter for 'low', 'out', 'expiring'
   if (invFilter === 'low') {
-    data = data.filter(m => m.stock_quantity > 0 && m.stock_quantity <= m.reorder_level);
+    data = data.filter(m => (m.available_stock || 0) > 0 && (m.available_stock || 0) <= (m.reorder_level || 0));
   } else if (invFilter === 'out') {
-    data = data.filter(m => m.stock_quantity === 0);
+    data = data.filter(m => (m.available_stock || 0) === 0);
   } else if (invFilter === 'expiring') {
     const in30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const { data: batches } = await supabase.from('medicine_batches')
       .select('medicine_id')
       .lte('expiry_date', in30)
-      .gt('quantity_remaining', 0);
+      .gt('quantity', 0);
     const expMedIds = new Set((batches || []).map(b => b.medicine_id));
     data = data.filter(m => expMedIds.has(m.id));
   }
@@ -655,12 +654,14 @@ async function loadInventory() {
 }
 
 function renderMedicineCard(m) {
+  const stock = m.available_stock || 0;
+  const reorder = m.reorder_level || 0;
   let stockColor = 'var(--success)';
   let stockLabel = 'In Stock';
-  if (m.stock_quantity === 0) {
+  if (stock === 0) {
     stockColor = 'var(--danger)';
     stockLabel = 'Out of Stock';
-  } else if (m.stock_quantity <= m.reorder_level) {
+  } else if (stock <= reorder) {
     stockColor = 'var(--warning)';
     stockLabel = 'Low Stock';
   }
@@ -680,11 +681,11 @@ function renderMedicineCard(m) {
       <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-secondary,#f8fafc);border-radius:8px;padding:.5rem .75rem">
         <div>
           <div style="font-size:.75rem;color:var(--text-muted)">In Stock</div>
-          <div style="font-weight:700;font-size:1.2rem;color:${stockColor}">${escapeHtml(String(m.stock_quantity))}</div>
+          <div style="font-weight:700;font-size:1.2rem;color:${stockColor}">${escapeHtml(String(stock))}</div>
         </div>
         <div style="text-align:right">
           <div style="font-size:.75rem;color:var(--text-muted)">Reorder At</div>
-          <div style="font-weight:600;font-size:.95rem">${escapeHtml(String(m.reorder_level))}</div>
+          <div style="font-weight:600;font-size:.95rem">${escapeHtml(String(reorder))}</div>
         </div>
       </div>
       <div style="font-size:.78rem;color:var(--text-muted)">SKU: ${escapeHtml(m.sku || '—')}</div>
@@ -733,37 +734,49 @@ async function saveMedicine() {
   const medicineName = form.querySelector('[name="medicine_name"]')?.value.trim();
   if (!medicineName) { showToast('Medicine name is required', 'warning'); return; }
 
+  const dosageForm = form.querySelector('[name="dosage_form"]')?.value.trim();
+  if (!dosageForm) { showToast('Dosage form is required', 'warning'); return; }
+
+  const unitOfMeasure = form.querySelector('[name="unit_of_measure"]')?.value.trim() || 'units';
+
   const payload = {
     medicine_name:   medicineName,
     generic_name:    form.querySelector('[name="generic_name"]')?.value.trim()    || null,
     brand_name:      form.querySelector('[name="brand_name"]')?.value.trim()      || null,
     strength:        form.querySelector('[name="strength"]')?.value.trim()        || null,
-    dosage_form:     form.querySelector('[name="dosage_form"]')?.value.trim()     || null,
-    unit_of_measure: form.querySelector('[name="unit_of_measure"]')?.value.trim() || null,
+    dosage_form:     dosageForm,
+    unit_of_measure: unitOfMeasure,
     sku:             form.querySelector('[name="sku"]')?.value.trim()             || null,
-    reorder_level:   parseInt(form.querySelector('[name="reorder_level"]')?.value) || 0,
-    purchase_price:  parseFloat(form.querySelector('[name="purchase_price"]')?.value) || null,
-    selling_price:   parseFloat(form.querySelector('[name="selling_price"]')?.value)  || null,
+    reorder_level:   parseInt(form.querySelector('[name="reorder_level"]')?.value) || 10,
+    purchase_price:  parseFloat(form.querySelector('[name="purchase_price"]')?.value) || 0.00,
+    selling_price:   parseFloat(form.querySelector('[name="selling_price"]')?.value)  || 0.00,
     is_active:       true,
   };
 
   btn.disabled    = true;
   btn.textContent = 'Saving...';
 
+  const { data: user } = await supabase.auth.getUser();
+
   let error;
   if (editId) {
-    ({ error } = await supabase.from('medicines').update(payload).eq('id', editId));
+    ({ error } = await supabase.from('medicine_catalog').update(payload).eq('id', editId));
   } else {
-    ({ error } = await supabase.from('medicines').insert([{ ...payload, stock_quantity: 0 }]));
+    ({ error } = await supabase.from('medicine_catalog').insert([{
+      ...payload,
+      available_stock: 0,
+      created_by: user?.user?.id || null,
+    }]));
   }
 
   btn.disabled    = false;
   btn.textContent = 'Save Medicine';
 
   if (error) { showToast(error.message, 'error'); return; }
-  showToast(editId ? 'Medicine updated' : 'Medicine added', 'success');
+  showToast(editId ? 'Medicine updated' : 'Medicine added to catalogue', 'success');
   document.getElementById('medicine-modal-overlay').classList.remove('active');
   loadInventory();
+  if (currentView === 'overview') loadOverview();
 }
 
 // ─── Receive Stock Modal ──────────────────────────────────────────────────────
@@ -779,7 +792,7 @@ function openStockModal(medicine) {
 
   form.reset();
   _stockMedicineId = medicine.id;
-  _stockCurrentQty = medicine.stock_quantity || 0;
+  _stockCurrentQty = medicine.available_stock || 0;
   if (nameEl) nameEl.textContent = escapeHtml(medicine.medicine_name);
   if (medIdEl) medIdEl.value     = medicine.id;
 
@@ -814,8 +827,7 @@ async function saveStock() {
   const { data: batch, error: batchErr } = await supabase.from('medicine_batches').insert([{
     medicine_id:        _stockMedicineId,
     batch_number:       batchNumber,
-    quantity_received:  quantity,
-    quantity_remaining: quantity,
+    quantity:           quantity,
     manufacture_date:   manufactDate || null,
     expiry_date:        expiryDate,
     purchase_price:     purchasePrice,
@@ -826,9 +838,9 @@ async function saveStock() {
 
   if (batchErr) { showToast(batchErr.message, 'error'); btn.disabled = false; btn.textContent = 'Save'; return; }
 
-  // 2. Update medicines.stock_quantity
-  const { error: updateErr } = await supabase.from('medicines')
-    .update({ stock_quantity: resultingStock })
+  // 2. Update medicine_catalog.available_stock
+  const { error: updateErr } = await supabase.from('medicine_catalog')
+    .update({ available_stock: resultingStock })
     .eq('id', _stockMedicineId);
 
   if (updateErr) { showToast(updateErr.message, 'error'); btn.disabled = false; btn.textContent = 'Save'; return; }
@@ -836,14 +848,14 @@ async function saveStock() {
   // 3. Insert inventory_movement
   await supabase.from('inventory_movements').insert([{
     medicine_id:     _stockMedicineId,
+    batch_id:        batch?.id || null,
     movement_type:   'stock_receipt',
     quantity:        quantity,
     previous_stock:  previousStock,
     resulting_stock: resultingStock,
-    reference_id:    batch?.id || null,
-    notes:           `Batch: ${batchNumber}${supplierName ? ` from ${supplierName}` : ''}`,
+    unit_purchase_cost: purchasePrice,
+    reason:          `Batch: ${batchNumber}${supplierName ? ` from ${supplierName}` : ''}`,
     performed_by:    userId,
-    performed_at:    new Date().toISOString(),
   }]);
 
   btn.disabled    = false;
@@ -864,7 +876,7 @@ async function doDispenseSearch() {
   if (!query) { showToast('Enter an RX number or patient hospital number', 'warning'); return; }
   container.innerHTML = '<div class="loading-state">Searching...</div>';
 
-  // Try matching RX number first, then patient HN
+  // Try matching prescription number first, then patient HN
   let { data, error } = await supabase.from('prescriptions')
     .select(`
       *,
@@ -872,7 +884,7 @@ async function doDispenseSearch() {
       prescription_items(*),
       prescribing_doctor:profiles(full_name)
     `)
-    .or(`rx_number.ilike.%${query}%`)
+    .or(`prescription_number.ilike.%${query}%`)
     .not('status', 'eq', 'cancelled')
     .order('created_at', { ascending: false })
     .limit(10);
@@ -929,7 +941,7 @@ function renderDispenseRxDetail(rx) {
         <span class="badge ${getStatusBadgeClass(rx.status)}">${escapeHtml(rx.status || '')}</span>
       </div>
       <div style="font-size:.83rem;color:var(--text-muted);margin-bottom:.6rem">
-        RX #${escapeHtml(rx.rx_number || rx.id.slice(0, 8))} ·
+        RX #${escapeHtml(rx.prescription_number || rx.rx_number || rx.id.slice(0, 8))} ·
         Dr. ${escapeHtml(rx.prescribing_doctor?.full_name || '—')} ·
         ${formatDate(rx.created_at, 'datetime')}
       </div>
@@ -937,11 +949,12 @@ function renderDispenseRxDetail(rx) {
         ${items.map(item => `
           <div style="font-size:.85rem;margin-bottom:.35rem;padding-bottom:.35rem;border-bottom:1px solid var(--border-color)">
             💊 <strong>${escapeHtml(item.medicine_name)}</strong> ${escapeHtml(item.strength || '')}
-            <span style="color:var(--text-muted)">— ${escapeHtml(item.dosage || '')} ${escapeHtml(item.frequency || '')} ${item.duration ? `for ${escapeHtml(item.duration)}` : ''}</span>
+            <span style="color:var(--text-muted)">— ${escapeHtml(item.dosage || '')} · ${escapeHtml(item.route || '')} · ${escapeHtml(item.frequency || '')} ${item.duration ? `for ${escapeHtml(item.duration)}` : ''}</span>
             <span style="float:right;font-size:.78rem">
               Ordered: <strong>${escapeHtml(String(item.quantity || 0))}</strong>
               · Dispensed: <strong style="color:var(--success)">${escapeHtml(String(item.quantity_dispensed || 0))}</strong>
             </span>
+            ${item.instructions ? `<div style="font-size:.76rem;color:var(--text-muted);margin-top:.2rem"><em>Instructions: ${escapeHtml(item.instructions)}</em></div>` : ''}
           </div>
         `).join('')}
       </div>
@@ -970,17 +983,17 @@ function openDispenseModal(rx, patient) {
   content.innerHTML = `
     <div style="margin-bottom:1rem;padding:.75rem;background:var(--bg-secondary,#f8fafc);border-radius:8px">
       <div style="font-weight:700">${escapeHtml(patientName)}</div>
-      <div style="font-size:.8rem;color:var(--text-muted)">HN: ${escapeHtml(patient.hospital_number || '—')} · RX #${escapeHtml(rx.rx_number || rx.id.slice(0, 8))}</div>
+      <div style="font-size:.8rem;color:var(--text-muted)">HN: ${escapeHtml(patient.hospital_number || '—')} · RX #${escapeHtml(rx.prescription_number || rx.rx_number || rx.id.slice(0, 8))}</div>
     </div>
 
-    ${items.filter(i => i.status !== 'dispensed').map(item => {
+    ${items.filter(i => (i.quantity_dispensed || 0) < (i.quantity || 0)).map(item => {
       const remaining = (item.quantity || 0) - (item.quantity_dispensed || 0);
       return `
         <div class="dispense-item-row" data-item-id="${escapeHtml(item.id)}" style="padding:.75rem;border:1px solid var(--border-color);border-radius:8px;margin-bottom:.6rem">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
             <div style="flex:1">
               <div style="font-weight:600;font-size:.9rem">💊 ${escapeHtml(item.medicine_name)} ${escapeHtml(item.strength || '')}</div>
-              <div style="font-size:.78rem;color:var(--text-muted)">${escapeHtml(item.dosage || '')} ${escapeHtml(item.frequency || '')} ${item.duration ? `· ${escapeHtml(item.duration)}` : ''}</div>
+              <div style="font-size:.78rem;color:var(--text-muted)">${escapeHtml(item.dosage || '')} · ${escapeHtml(item.route || '')} · ${escapeHtml(item.frequency || '')} ${item.duration ? `· ${escapeHtml(item.duration)}` : ''}</div>
               <div style="font-size:.78rem;color:var(--text-muted)">Ordered: ${escapeHtml(String(item.quantity || 0))} · Already dispensed: ${escapeHtml(String(item.quantity_dispensed || 0))} · Remaining: <strong>${escapeHtml(String(remaining))}</strong></div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:center;gap:.25rem">
@@ -1000,7 +1013,7 @@ function openDispenseModal(rx, patient) {
       `;
     }).join('')}
 
-    ${items.every(i => i.status === 'dispensed') ? '<div class="empty-state">All items already dispensed.</div>' : ''}
+    ${items.every(i => (i.quantity_dispensed || 0) >= (i.quantity || 0)) ? '<div class="empty-state">All items already dispensed.</div>' : ''}
   `;
 
   overlay.classList.add('active');
@@ -1032,39 +1045,37 @@ async function confirmDispense() {
     const item       = items.find(i => i.id === d.itemId);
     if (!item) continue;
     const newDispensed = (item.quantity_dispensed || 0) + d.qty;
-    const newStatus    = newDispensed >= (item.quantity || 0) ? 'dispensed' : 'partially_dispensed';
 
-    // Update prescription_item
+    // Update prescription_item quantity_dispensed
     const { error: itemErr } = await supabase.from('prescription_items')
-      .update({ quantity_dispensed: newDispensed, status: newStatus })
+      .update({ quantity_dispensed: newDispensed })
       .eq('id', d.itemId);
     if (itemErr) { showToast(`Error updating item: ${itemErr.message}`, 'error'); btn.disabled = false; btn.textContent = 'Confirm Dispense'; return; }
 
-    // Deduct from medicine stock
-    const { data: meds } = await supabase.from('medicines')
-      .select('id, stock_quantity')
+    // Deduct from medicine_catalog available_stock if matching medicine exists
+    const { data: meds } = await supabase.from('medicine_catalog')
+      .select('id, available_stock')
       .ilike('medicine_name', `%${d.medicineName}%`)
       .limit(1);
 
     if (meds && meds.length > 0) {
       const med            = meds[0];
-      const prevStock      = med.stock_quantity;
+      const prevStock      = med.available_stock || 0;
       const resultingStock = Math.max(0, prevStock - d.qty);
 
-      await supabase.from('medicines')
-        .update({ stock_quantity: resultingStock })
+      await supabase.from('medicine_catalog')
+        .update({ available_stock: resultingStock })
         .eq('id', med.id);
 
       await supabase.from('inventory_movements').insert([{
         medicine_id:     med.id,
-        movement_type:   'dispense',
+        movement_type:   'dispensing',
         quantity:        d.qty,
         previous_stock:  prevStock,
         resulting_stock: resultingStock,
         reference_id:    _dispenseRx.id,
-        notes:           `Dispensed for RX #${_dispenseRx.rx_number || _dispenseRx.id.slice(0, 8)} — Patient: ${_dispensePatient.hospital_number || '—'}`,
+        reason:          `Dispensed for RX #${_dispenseRx.prescription_number || _dispenseRx.rx_number || _dispenseRx.id.slice(0, 8)} — Patient: ${_dispensePatient.hospital_number || '—'}`,
         performed_by:    userId,
-        performed_at:    new Date().toISOString(),
       }]);
     }
   }
@@ -1111,10 +1122,10 @@ async function loadMovements() {
   let query = supabase.from('inventory_movements')
     .select(`
       *,
-      medicine:medicines(medicine_name),
+      medicine:medicine_catalog(medicine_name),
       performed_by_profile:profiles(full_name)
     `, { count: 'exact' })
-    .order('performed_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .range((mvPage - 1) * MV_PER_PAGE, mvPage * MV_PER_PAGE - 1);
 
   if (mvFilter !== 'all') query = query.eq('movement_type', mvFilter);
@@ -1135,18 +1146,22 @@ async function loadMovements() {
   tbody.innerHTML = data.map(mv => {
     const typeLabel = {
       stock_receipt: 'Stock Receipt',
-      dispense:      'Dispense',
+      dispensing:    'Dispensing',
       adjustment:    'Adjustment',
       expired:       'Expired',
+      damaged:       'Damaged',
       returned:      'Returned',
+      transfer:      'Transfer',
     }[mv.movement_type] || escapeHtml(mv.movement_type || '');
 
     const typeBadge = {
       stock_receipt: 'badge-success',
-      dispense:      'badge-info',
+      dispensing:    'badge-info',
       adjustment:    'badge-warning',
       expired:       'badge-danger',
+      damaged:       'badge-danger',
       returned:      'badge-secondary',
+      transfer:      'badge-secondary',
     }[mv.movement_type] || '';
 
     const qtySign = ['stock_receipt', 'returned'].includes(mv.movement_type) ? '+' : '-';
@@ -1154,7 +1169,7 @@ async function loadMovements() {
 
     return `
       <tr>
-        <td>${formatDate(mv.performed_at, 'datetime')}</td>
+        <td>${formatDate(mv.created_at, 'datetime')}</td>
         <td>${escapeHtml(mv.medicine?.medicine_name || '—')}</td>
         <td><span class="badge ${typeBadge}">${typeLabel}</span></td>
         <td style="font-weight:700;color:${qtyColor}">${qtySign}${escapeHtml(String(mv.quantity || 0))}</td>
