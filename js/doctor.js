@@ -598,7 +598,7 @@ async function loadChartSummary(patient) {
     ['Religion', patient.religion],
     ['Blood Group', patient.blood_group],
     ['Genotype', patient.genotype],
-    ['Next of Kin', patient.next_of_kin_name],
+    ['Next of Kin', patient.next_of_kin || patient.next_of_kin_name],
     ['NOK Phone', patient.next_of_kin_phone],
     ['NOK Relationship', patient.next_of_kin_relationship],
     ['Registered', formatDate(patient.created_at, 'datetime')],

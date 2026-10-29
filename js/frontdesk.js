@@ -396,20 +396,53 @@ async function submitRegistration() {
   const btnLoading = document.querySelector('#submit-reg-btn .btn-loading');
   const submitBtn = document.getElementById('submit-reg-btn');
 
+  // Prevent duplicate submit clicks while a registration is in progress
+  if (submitBtn.disabled) return;
+
   // Basic required field check
   const firstName = document.getElementById('reg-first-name').value.trim();
   const lastName = document.getElementById('reg-last-name').value.trim();
   const dob = document.getElementById('reg-dob').value;
-  const sex = document.getElementById('reg-sex').value;
+  const rawSex = document.getElementById('reg-sex').value;
   const phone = document.getElementById('reg-phone').value.trim();
 
-  if (!firstName) { showToast('First name is required', 'warning'); document.getElementById('reg-first-name').focus(); return; }
-  if (!lastName) { showToast('Last name is required', 'warning'); document.getElementById('reg-last-name').focus(); return; }
-  if (!dob) { showToast('Date of birth is required', 'warning'); document.getElementById('reg-dob').focus(); return; }
-  if (!sex) { showToast('Sex is required', 'warning'); document.getElementById('reg-sex').focus(); return; }
-  if (!phone) { showToast('Phone number is required', 'warning'); document.getElementById('reg-phone').focus(); return; }
+  if (!firstName) {
+    showToast('First name is required', 'warning');
+    document.getElementById('reg-first-name').focus();
+    return;
+  }
+  if (!lastName) {
+    showToast('Last name is required', 'warning');
+    document.getElementById('reg-last-name').focus();
+    return;
+  }
+  if (!dob) {
+    showToast('Date of birth is required', 'warning');
+    document.getElementById('reg-dob').focus();
+    return;
+  }
 
-  // Show loading state
+  const todayStr = new Date().toISOString().substring(0, 10);
+  if (dob > todayStr) {
+    showToast('Date of birth cannot be in the future', 'warning');
+    document.getElementById('reg-dob').focus();
+    return;
+  }
+
+  const sex = (rawSex || '').toLowerCase().trim();
+  if (!sex || !['male', 'female', 'other'].includes(sex)) {
+    showToast('Please select a valid sex (Male, Female, or Other)', 'warning');
+    document.getElementById('reg-sex').focus();
+    return;
+  }
+
+  if (!phone) {
+    showToast('Phone number is required', 'warning');
+    document.getElementById('reg-phone').focus();
+    return;
+  }
+
+  // Show loading state and lock button
   submitBtn.disabled = true;
   btnText.style.display = 'none';
   btnLoading.style.display = 'inline';
@@ -427,37 +460,57 @@ async function submitRegistration() {
     emergency_contact_name: document.getElementById('reg-emergency-name').value.trim() || null,
     emergency_contact_phone: document.getElementById('reg-emergency-phone').value.trim() || null,
     emergency_contact_relationship: document.getElementById('reg-relationship').value.trim() || null,
-    next_of_kin_name: document.getElementById('reg-nok').value.trim() || null,
+    next_of_kin: document.getElementById('reg-nok').value.trim() || null,
     admin_notes: document.getElementById('reg-notes').value.trim() || null,
+    registered_by: currentProfile?.id || null,
   };
 
-  const { data, error } = await supabase
-    .from('patients')
-    .insert([payload])
-    .select()
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('patients')
+      .insert([payload])
+      .select()
+      .single();
 
-  submitBtn.disabled = false;
-  btnText.style.display = 'inline';
-  btnLoading.style.display = 'none';
+    if (error) {
+      console.error('Patient registration error:', { code: error.code, message: error.message });
+      let friendlyMsg = error.message || 'An unexpected database error occurred.';
+      if (error.code === 'PGRST204') {
+        friendlyMsg = 'Database column mismatch detected. Please reload your browser.';
+      } else if (error.code === '23505') {
+        friendlyMsg = 'A patient with this unique record (or hospital number) already exists.';
+      } else if (error.code === '42501') {
+        friendlyMsg = 'Permission denied: Only active front desk staff or administrators can register patients.';
+      } else if (error.code === '23502') {
+        friendlyMsg = 'A required database field is missing. Please review all required inputs.';
+      }
+      showToast(`Registration failed: ${friendlyMsg}`, 'error');
+      return;
+    }
 
-  if (error) {
-    showToast(`Registration failed: ${error.message}`, 'error');
-    return;
+    // Success
+    lastRegisteredPatient = data;
+    const fullName = `${data.first_name || ''} ${data.middle_name ? data.middle_name + ' ' : ''}${data.last_name || ''}`.trim();
+
+    document.getElementById('new-hospital-number').textContent = data.hospital_number || 'N/A';
+    document.getElementById('success-patient-name').textContent = `Name: ${fullName}`;
+    document.getElementById('registration-form').style.display = 'none';
+    document.getElementById('duplicate-warning').style.display = 'none';
+    document.getElementById('registration-success').style.display = 'block';
+
+    showToast(`Patient registered successfully! HN: ${data.hospital_number}`, 'success');
+    ignoreDuplicate = false;
+
+    // Refresh overview in background
+    loadOverview().catch(err => console.warn('Frontdesk overview refresh non-fatal warning:', err));
+  } catch (err) {
+    console.error('Unexpected error during patient registration:', err.message || err);
+    showToast('An unexpected error occurred during registration. Please try again.', 'error');
+  } finally {
+    submitBtn.disabled = false;
+    btnText.style.display = 'inline';
+    btnLoading.style.display = 'none';
   }
-
-  // Success
-  lastRegisteredPatient = data;
-  const fullName = `${data.first_name || ''} ${data.middle_name ? data.middle_name + ' ' : ''}${data.last_name || ''}`.trim();
-
-  document.getElementById('new-hospital-number').textContent = data.hospital_number || 'N/A';
-  document.getElementById('success-patient-name').textContent = `Name: ${fullName}`;
-  document.getElementById('registration-form').style.display = 'none';
-  document.getElementById('duplicate-warning').style.display = 'none';
-  document.getElementById('registration-success').style.display = 'block';
-
-  showToast(`Patient registered successfully! HN: ${data.hospital_number}`, 'success');
-  ignoreDuplicate = false;
 }
 
 // ─── Patient Search ───────────────────────────────────────────────────────────
@@ -973,7 +1026,7 @@ async function openPatientChart(patient) {
         ${renderDemoField('Address', fullPatient.address)}
         ${renderDemoField('Blood Group', fullPatient.blood_group)}
         ${renderDemoField('Genotype', fullPatient.genotype)}
-        ${renderDemoField('Next of Kin', fullPatient.next_of_kin_name)}
+        ${renderDemoField('Next of Kin', fullPatient.next_of_kin || fullPatient.next_of_kin_name)}
         ${renderDemoField('Emergency Contact', fullPatient.emergency_contact_name)}
         ${renderDemoField('Emergency Phone', fullPatient.emergency_contact_phone)}
         ${renderDemoField('Relationship', fullPatient.emergency_contact_relationship)}
