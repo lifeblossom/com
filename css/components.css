@@ -689,3 +689,199 @@
   .patient-banner-actions { flex-direction: row; width: 100%; }
   .rx-item { grid-template-columns: 1fr; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   DOCTOR LAB REPORT VIEWER MODAL
+═══════════════════════════════════════════════════════════════ */
+
+/* Report header block – patient/order meta */
+.lab-report-header-block {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1.1rem 1.25rem 0.85rem;
+  margin-bottom: 1.25rem;
+}
+.lab-report-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+.lab-report-meta-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.lab-report-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: block;
+}
+.lab-report-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+.lab-report-hn {
+  color: var(--primary);
+  font-family: var(--font-mono, monospace);
+}
+.lab-report-indication {
+  font-size: 0.84rem;
+  color: #475569;
+  margin-bottom: 0.5rem;
+}
+.lab-report-tests-ordered {
+  font-size: 0.84rem;
+  color: #475569;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.lab-report-divider {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 1rem 0;
+}
+
+/* Results heading */
+.lab-report-results-heading {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 0.85rem;
+}
+
+/* Individual result card */
+.lab-report-result-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.7rem;
+  overflow: hidden;
+  margin-bottom: 1rem;
+  background: #fff;
+}
+.lab-report-result-card:last-child { margin-bottom: 0; }
+.lab-report-result-card.lab-report-result-abnormal { border-color: #fca5a5; }
+.lab-report-result-card.lab-report-result-finalized { border-color: #6ee7b7; }
+
+.lab-report-result-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+.lab-report-result-card.lab-report-result-abnormal .lab-report-result-card-header { background: #fff5f5; border-color: #fca5a5; }
+.lab-report-result-card.lab-report-result-finalized .lab-report-result-card-header { background: #f0fdf4; border-color: #6ee7b7; }
+
+.lab-report-result-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.lab-report-result-status { font-size: 0.72rem; }
+
+.lab-report-abnormal-badge {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.lab-report-critical-badge {
+  background: #7f1d1d;
+  color: #fff;
+  border-radius: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.lab-report-result-card-body {
+  padding: 0.85rem 1rem;
+}
+
+.lab-report-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+.lab-report-result-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.lab-report-result-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #1e293b;
+  font-family: var(--font-mono, monospace);
+  line-height: 1.1;
+}
+.lab-report-result-value.lab-report-value-abnormal { color: #dc2626; }
+.lab-report-result-value.lab-report-value-critical  { color: #991b1b; }
+.lab-report-unit {
+  font-size: 0.82rem;
+  color: #64748b;
+  font-weight: 400;
+  font-family: inherit;
+  vertical-align: middle;
+}
+
+.lab-report-comments {
+  background: #f1f5f9;
+  border-left: 3px solid var(--primary, #2563eb);
+  border-radius: 0 0.4rem 0.4rem 0;
+  padding: 0.5rem 0.85rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  color: #334155;
+}
+.lab-report-comments p { margin: 0.3rem 0 0; }
+
+.lab-report-footer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  font-size: 0.78rem;
+  color: #64748b;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 0.6rem;
+  margin-top: 0.4rem;
+}
+.lab-report-footer-meta > div { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; }
+.lab-report-timestamp {
+  color: #94a3b8;
+  font-size: 0.74rem;
+  font-style: italic;
+}
+
+/* No-results state */
+.lab-report-no-results {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: #64748b;
+}
+.lab-report-no-results-icon { font-size: 2.5rem; display: block; margin-bottom: 0.75rem; }
+.lab-report-no-results p { margin: 0.3rem 0; font-size: 0.95rem; }
+.lab-report-contact { font-size: 0.84rem; color: #94a3b8; }
+
+/* Responsive tweaks */
+@media (max-width: 600px) {
+  .lab-report-meta-grid { grid-template-columns: 1fr 1fr; }
+  .lab-report-result-grid { grid-template-columns: 1fr 1fr; }
+  .lab-report-result-value { font-size: 1.15rem; }
+}

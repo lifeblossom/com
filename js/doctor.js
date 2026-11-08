@@ -202,6 +202,9 @@ function initUI(profile) {
   document.getElementById('add-lab-item-btn').addEventListener('click', addLabItemRow);
   setupPatientSearchInModal('lab-patient-search', 'lab-patient-results', 'lab-patient-id', 'lab-patient-selected');
 
+  // Lab Report viewer modal (read-only)
+  setupModalClose('lab-report-modal-overlay', 'lab-report-modal-close', 'lab-report-modal-cancel');
+
   // Rx modal
   setupModalClose('rx-modal-overlay', 'rx-modal-close', 'rx-modal-cancel');
   document.getElementById('rx-modal-save').addEventListener('click', submitPrescription);
@@ -866,12 +869,30 @@ async function loadChartLabOrders(patientId) {
   const container = document.getElementById('chart-laborders-list');
   container.innerHTML = '<div class="loading-state">Loading...</div>';
   const { data, error } = await supabase.from('laboratory_orders')
-    .select(`*, laboratory_order_items(*), patient:patients(hospital_number,first_name,last_name)`)
+    .select(`
+      *,
+      laboratory_order_items(*),
+      patient:patients(id, hospital_number, first_name, middle_name, last_name),
+      laboratory_results(
+        *,
+        performed_by_profile:profiles!laboratory_results_performed_by_fkey(full_name, role),
+        finalized_by_profile:profiles!laboratory_results_finalized_by_fkey(full_name, role)
+      )
+    `)
     .eq('patient_id', patientId)
     .order('created_at', { ascending: false });
   if (error) { container.innerHTML = `<div class="error-state">${escapeHtml(error.message)}</div>`; return; }
   if (!data || data.length === 0) { container.innerHTML = '<div class="empty-state">No lab orders for this patient.</div>'; return; }
   container.innerHTML = data.map(o => renderLabOrderCard(o)).join('');
+  // Attach View Report button listeners
+  container.querySelectorAll('.lab-view-report-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const orderId = btn.dataset.orderId;
+      const order = data.find(o => o.id === orderId);
+      if (order) openLabReportModal(order);
+    });
+  });
 }
 
 async function loadChartPrescriptions(patientId) {
@@ -982,7 +1003,16 @@ async function loadLabOrders() {
   container.innerHTML = '<div class="loading-state">Loading...</div>';
   const { data: user } = await supabase.auth.getUser();
   let query = supabase.from('laboratory_orders')
-    .select(`*, laboratory_order_items(*), patient:patients(hospital_number,first_name,last_name)`)
+    .select(`
+      *,
+      laboratory_order_items(*),
+      patient:patients(id, hospital_number, first_name, middle_name, last_name),
+      laboratory_results(
+        *,
+        performed_by_profile:profiles!laboratory_results_performed_by_fkey(full_name, role),
+        finalized_by_profile:profiles!laboratory_results_finalized_by_fkey(full_name, role)
+      )
+    `)
     .eq('ordering_doctor_id', user.user.id)
     .order('created_at', { ascending: false });
   if (labFilter !== 'all') query = query.eq('status', labFilter);
@@ -990,17 +1020,31 @@ async function loadLabOrders() {
   if (error) { container.innerHTML = `<div class="error-state">${escapeHtml(error.message)}</div>`; return; }
   if (!data || data.length === 0) { container.innerHTML = '<div class="empty-state">No lab orders.</div>'; return; }
   container.innerHTML = data.map(o => renderLabOrderCard(o)).join('');
+  // Attach View Report button listeners
+  container.querySelectorAll('.lab-view-report-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const orderId = btn.dataset.orderId;
+      const order = data.find(o => o.id === orderId);
+      if (order) openLabReportModal(order);
+    });
+  });
 }
 
 function renderLabOrderCard(o) {
   const patient = o.patient || {};
   const items = o.laboratory_order_items || [];
+  const results = o.laboratory_results || [];
+  const isCompleted = o.status === 'completed';
+  const hasResults = results.length > 0;
+  const canViewReport = isCompleted || hasResults;
+  const patientName = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ') || 'Patient';
   return `
     <div class="list-item">
       <div class="list-item-body">
         <div class="list-item-title">
           Order #${escapeHtml(o.order_number || o.id.slice(0, 8))} —
-          ${escapeHtml(patient.first_name || '')} ${escapeHtml(patient.last_name || '')}
+          ${escapeHtml(patientName)}
           <span class="badge badge-${o.priority === 'stat' ? 'danger' : o.priority === 'urgent' ? 'warning' : 'info'}" style="margin-left:.5rem">${escapeHtml(o.priority || 'routine')}</span>
         </div>
         <div class="list-item-meta">HN: ${escapeHtml(patient.hospital_number || '—')} · ${formatDate(o.created_at, 'datetime')}</div>
@@ -1008,12 +1052,169 @@ function renderLabOrderCard(o) {
           Tests: ${items.map(i => escapeHtml(i.test_name)).join(', ') || '—'}
         </div>
         ${o.clinical_indication ? `<div class="list-item-note">${escapeHtml(o.clinical_indication)}</div>` : ''}
+        ${hasResults ? `<div style="margin-top:.35rem;font-size:.8rem;color:var(--success-dark)">🧪 ${results.length} result${results.length !== 1 ? 's' : ''} recorded</div>` : ''}
       </div>
-      <div class="list-item-aside">
+      <div class="list-item-aside" style="display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
         <span class="badge ${getStatusBadgeClass(o.status)}">${escapeHtml(o.status || '')}</span>
+        ${canViewReport ? `<button class="btn btn-primary btn-sm lab-view-report-btn" data-order-id="${escapeHtml(o.id)}" style="white-space:nowrap">📋 View Report</button>` : ''}
       </div>
     </div>
   `;
+}
+
+// ─── Lab Report Viewer ─────────────────────────────────────────────────────────
+
+/**
+ * Open the read-only laboratory report modal for a laboratory order.
+ * Fetches fresh results directly from laboratory_results to ensure the latest data.
+ */
+async function openLabReportModal(order) {
+  const modal = document.getElementById('lab-report-modal-overlay');
+  const body  = document.getElementById('lab-report-modal-body');
+  if (!modal || !body) return;
+
+  body.innerHTML = '<div class="loading-state"><p>Loading report…</p></div>';
+  modal.classList.add('active');
+
+  let orderData = order;
+  // If order details or patient are not fully loaded, fetch them directly
+  if (!orderData?.patient?.hospital_number || !orderData?.laboratory_order_items) {
+    const { data: fullOrder, error: orderErr } = await supabase
+      .from('laboratory_orders')
+      .select(`
+        *,
+        laboratory_order_items(*),
+        patient:patients(id, hospital_number, first_name, middle_name, last_name)
+      `)
+      .eq('id', order.id)
+      .single();
+    if (!orderErr && fullOrder) orderData = fullOrder;
+  }
+
+  // Fetch the actual saved results for this order (fresh query, not cached)
+  const { data: results, error } = await supabase
+    .from('laboratory_results')
+    .select(`
+      *,
+      performed_by_profile:profiles!laboratory_results_performed_by_fkey(full_name, role),
+      finalized_by_profile:profiles!laboratory_results_finalized_by_fkey(full_name, role)
+    `)
+    .eq('order_id', orderData.id)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    body.innerHTML = `<div class="error-state">Failed to load results: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  body.innerHTML = renderLabReportContent(orderData, results || []);
+}
+
+/**
+ * Render the HTML content of the lab report panel.
+ * @param {Object} order  - full laboratory order row (with patient, items)
+ * @param {Array}  results - array of laboratory_result rows with profile embeds
+ */
+function renderLabReportContent(order, results) {
+  const patient = order.patient || {};
+  const items   = order.laboratory_order_items || [];
+  const patientName = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ') || '—';
+
+  // Header
+  let html = `
+    <div class="lab-report-header-block">
+      <div class="lab-report-meta-grid">
+        <div><span class="lab-report-label">Patient</span><span class="lab-report-value">${escapeHtml(patientName)}</span></div>
+        <div><span class="lab-report-label">Hospital No.</span><span class="lab-report-value lab-report-hn">${escapeHtml(patient.hospital_number || '—')}</span></div>
+        <div><span class="lab-report-label">Order No.</span><span class="lab-report-value lab-report-hn">${escapeHtml(order.order_number || '—')}</span></div>
+        <div><span class="lab-report-label">Priority</span><span class="badge badge-${order.priority === 'stat' ? 'danger' : order.priority === 'urgent' ? 'warning' : 'info'}">${escapeHtml(order.priority || 'routine')}</span></div>
+        <div><span class="lab-report-label">Order Status</span><span class="badge ${getStatusBadgeClass(order.status)}">${escapeHtml(order.status || '—')}</span></div>
+        <div><span class="lab-report-label">Date Ordered</span><span class="lab-report-value">${formatDate(order.created_at, 'datetime')}</span></div>
+      </div>
+      ${order.clinical_indication ? `<div class="lab-report-indication"><span class="lab-report-label">Clinical Indication:</span> ${escapeHtml(order.clinical_indication)}</div>` : ''}
+      ${items.length > 0 ? `<div class="lab-report-tests-ordered"><span class="lab-report-label">Tests Ordered:</span> ${items.map(i => `<span class="test-tag">${escapeHtml(i.test_name)}</span>`).join(' ')}</div>` : ''}
+    </div>
+    <hr class="lab-report-divider"/>
+  `;
+
+  if (results.length === 0) {
+    const isCompleted = order.status === 'completed';
+    html += `
+      <div class="lab-report-no-results">
+        <span class="lab-report-no-results-icon">🔬</span>
+        <p>${isCompleted ? 'Laboratory order completed, but no result has been recorded yet.' : 'No laboratory results recorded yet for this order.'}</p>
+        <p class="lab-report-contact">Please contact the laboratory.</p>
+      </div>`;
+    return html;
+  }
+
+  html += `<div class="lab-report-results-heading">Laboratory Results (${results.length})</div>`;
+
+  results.forEach((r) => {
+    const isAbnormal = Boolean(r.is_abnormal);
+    const isFinalized = r.status === 'finalized';
+    const isAmended   = r.status === 'amended';
+    const isDraft     = r.status === 'draft';
+    const isCritical  = Boolean(r.is_critical || order.priority === 'stat' || (r.comments && /\bcritical\b/i.test(r.comments)));
+
+    let statusLabel = '';
+    if (isDraft)          statusLabel = `<span class="badge badge-warning lab-report-result-status">⏳ Pending Verification</span>`;
+    else if (isFinalized) statusLabel = `<span class="badge badge-success lab-report-result-status">✅ Verified</span>`;
+    else if (isAmended)   statusLabel = `<span class="badge badge-info lab-report-result-status">📝 Amended</span>`;
+    else                  statusLabel = `<span class="badge badge-secondary lab-report-result-status">${escapeHtml(r.status || '—')}</span>`;
+
+    html += `
+      <div class="lab-report-result-card ${isAbnormal ? 'lab-report-result-abnormal' : ''} ${isFinalized || isAmended ? 'lab-report-result-finalized' : ''}">
+        <div class="lab-report-result-card-header">
+          <span class="lab-report-result-name">${escapeHtml(r.test_name || '—')}</span>
+          <div style="display:flex;align-items:center;gap:.5rem">
+            ${isAbnormal ? '<span class="lab-report-abnormal-badge">⚠ ABNORMAL</span>' : '<span class="badge badge-success" style="font-size:0.72rem">Normal</span>'}
+            ${isCritical ? '<span class="lab-report-critical-badge">🚨 CRITICAL</span>' : ''}
+            ${statusLabel}
+          </div>
+        </div>
+        <div class="lab-report-result-card-body">
+          <div class="lab-report-result-grid">
+            <div class="lab-report-result-cell">
+              <span class="lab-report-label">Result Value</span>
+              <span class="lab-report-result-value ${isAbnormal ? 'lab-report-value-abnormal' : ''} ${isCritical ? 'lab-report-value-critical' : ''}">
+                ${escapeHtml(r.result_value || '—')}${r.unit ? ` <span class="lab-report-unit">${escapeHtml(r.unit)}</span>` : ''}
+              </span>
+            </div>
+            ${r.reference_range ? `
+            <div class="lab-report-result-cell">
+              <span class="lab-report-label">Reference Range</span>
+              <span class="lab-report-value">${escapeHtml(r.reference_range)}</span>
+            </div>` : ''}
+            ${r.specimen_type ? `
+            <div class="lab-report-result-cell">
+              <span class="lab-report-label">Specimen</span>
+              <span class="lab-report-value">${escapeHtml(r.specimen_type)}</span>
+            </div>` : ''}
+          </div>
+          ${r.comments ? `<div class="lab-report-comments"><span class="lab-report-label">Findings / Comments:</span><p>${escapeHtml(r.comments)}</p></div>` : ''}
+          <div class="lab-report-footer-meta">
+            <div>
+              <span class="lab-report-label">Performed by:</span>
+              <span>${escapeHtml(r.performed_by_profile?.full_name || 'Laboratory Staff')}</span>
+              <span class="lab-report-timestamp">${formatDate(r.created_at, 'datetime')}</span>
+            </div>
+            ${(isFinalized || isAmended) ? `
+            <div>
+              <span class="lab-report-label">Verified by:</span>
+              <span>${escapeHtml(r.finalized_by_profile?.full_name || 'Authorized Staff')}</span>
+              ${r.finalized_at ? `<span class="lab-report-timestamp">(${formatDate(r.finalized_at, 'datetime')})</span>` : ''}
+            </div>` : `
+            <div>
+              <span class="lab-report-label">Verification:</span>
+              <span class="badge badge-warning" style="font-size:0.75rem">Pending Verification</span>
+            </div>`}
+          </div>
+        </div>
+      </div>`;
+  });
+
+  return html;
 }
 
 function openLabModal(presetPatientId) {
