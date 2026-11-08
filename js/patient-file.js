@@ -658,7 +658,8 @@ export class PatientFile {
 
   _renderDispensingForm(prescriptions, encounter) {
     const activePrescriptions = prescriptions.filter(rx =>
-      rx.status === 'active' || rx.status === 'partially_dispensed'
+      (rx.status === 'active' || rx.status === 'partially_dispensed') &&
+      (!rx.items || rx.items.length > 0)
     );
     return `
       <div class="pf-subsection pf-write-section">
@@ -898,22 +899,43 @@ export class PatientFile {
       try {
         const rows = document.querySelectorAll('.rx-item-row');
         const items = [];
-        for (const row of rows) {
-          const name = row.querySelector('.pf-rx-med-name').value.trim();
-          const qty = parseInt(row.querySelector('.pf-rx-qty').value, 10);
-          if (!name || !qty) continue;
+        let validationError = null;
+        for (let idx = 0; idx < rows.length; idx++) {
+          const row = rows[idx];
+          const name = row.querySelector('.pf-rx-med-name')?.value.trim();
+          const dosage = row.querySelector('.pf-rx-dosage')?.value.trim();
+          const route = row.querySelector('.pf-rx-route')?.value.trim();
+          const freq = row.querySelector('.pf-rx-freq')?.value.trim();
+          const duration = row.querySelector('.pf-rx-duration')?.value.trim();
+          const qty = parseInt(row.querySelector('.pf-rx-qty')?.value, 10);
+          const strength = row.querySelector('.pf-rx-strength')?.value.trim() || null;
+          const instructions = row.querySelector('.pf-rx-instructions')?.value.trim() || null;
+
+          if (!name) continue;
+          if (!dosage) { validationError = `Medicine "${name}": Dosage is required.`; break; }
+          if (!freq) { validationError = `Medicine "${name}": Frequency is required.`; break; }
+          if (!duration) { validationError = `Medicine "${name}": Duration is required.`; break; }
+          if (!qty || qty <= 0 || isNaN(qty)) { validationError = `Medicine "${name}": Quantity must be greater than 0.`; break; }
+
           items.push({
             medicine_name: name,
-            strength: row.querySelector('.pf-rx-strength').value.trim() || null,
-            dosage: row.querySelector('.pf-rx-dosage').value.trim(),
-            route: row.querySelector('.pf-rx-route').value.trim(),
-            frequency: row.querySelector('.pf-rx-freq').value.trim(),
-            duration: row.querySelector('.pf-rx-duration').value.trim() || null,
+            strength: strength,
+            dosage: dosage,
+            route: route || 'oral',
+            frequency: freq,
+            duration: duration,
             quantity: qty,
-            instructions: row.querySelector('.pf-rx-instructions').value.trim() || null,
+            instructions: instructions,
           });
         }
-        if (!items.length) { showToast('Add at least one medicine.', 'warning'); return; }
+        if (validationError) {
+          showToast(validationError, 'warning');
+          return;
+        }
+        if (!items.length) {
+          showToast('Please add at least one medicine before submitting this prescription.', 'warning');
+          return;
+        }
         const rxData = {
           patient_id: patient.id,
           encounter_id: encounter?.id || null,
@@ -1021,9 +1043,13 @@ export class PatientFile {
         .single();
 
       if (!rx?.items?.length) {
-        itemsContainer.innerHTML = '<p class="empty-text">No items in this prescription.</p>';
+        itemsContainer.innerHTML = '<div class="alert alert-warning" style="margin:.5rem 0;padding:.75rem;border-radius:6px;background:var(--warning-light,#fef3c7);color:var(--warning-dark,#92400e)">⚠️ This prescription contains no medicines and cannot be dispensed. Please contact the prescribing doctor or an administrator to resolve it.</div>';
+        const saveBtn = document.getElementById('pf-save-dispense-btn');
+        if (saveBtn) saveBtn.disabled = true;
         return;
       }
+      const saveBtn = document.getElementById('pf-save-dispense-btn');
+      if (saveBtn) saveBtn.disabled = false;
       itemsContainer.innerHTML = rx.items.map((item, idx) => `
         <div class="dispense-item-row" data-rx-item-id="${escapeHtml(item.id)}" data-medicine-id="${escapeHtml(item.medicine_id || '')}">
           <strong>${escapeHtml(item.medicine_name)} ${item.strength ? escapeHtml(item.strength) : ''}</strong>
@@ -1053,7 +1079,12 @@ export class PatientFile {
       btn.disabled = true;
       try {
         const rxId = rxSelect?.value || null;
+        if (!rxId) { showToast('Please select a prescription.', 'warning'); return; }
         const rows = document.querySelectorAll('.dispense-item-row');
+        if (rows.length === 0) {
+          showToast('This prescription contains no medicines and cannot be dispensed.', 'error');
+          return;
+        }
         const items = [];
         for (const row of rows) {
           const qtyInput = row.querySelector('.dispense-qty');

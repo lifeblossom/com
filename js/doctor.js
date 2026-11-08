@@ -9,7 +9,7 @@
 import { requireAuth, signOut, redirectToDashboard } from './auth.js';
 import {
   getInitials, formatRole, formatDate, calculateAge,
-  getStatusBadgeClass, showToast, debounce, timeAgo,
+  getStatusBadgeClass, showToast, showConfirm, debounce, timeAgo,
   calculateBMI, interpretBMI, escapeHtml, formatTransferStatus,
 } from './utils.js';
 import { countUnreadInbox, getMyInbox, acknowledgeTransfer, updateTransferStatus, sendPatientFile, getPatientTransfers, getPatientTransferHistory } from './api/transfers-api.js';
@@ -17,6 +17,7 @@ import { searchPatients, getPatient, getPatientEncounters, getPatientAllergies, 
 import { recordVitals, getPatientVitals, createNote, getPatientNotes, signNote, addDiagnosis, getPatientDiagnoses } from './api/clinical-api.js';
 import { supabase } from './supabase-client.js';
 import { listPatientDocuments, uploadPatientDocument, createPatientDocumentUrl } from './api/documents-api.js';
+import { createPrescription, cancelEmptyPrescription } from './api/shared-api.js';
 import { PatientFile } from './patient-file.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -905,6 +906,7 @@ async function loadChartPrescriptions(patientId) {
   if (error) { container.innerHTML = `<div class="error-state">${escapeHtml(error.message)}</div>`; return; }
   if (!data || data.length === 0) { container.innerHTML = '<div class="empty-state">No prescriptions for this patient.</div>'; return; }
   container.innerHTML = data.map(rx => renderRxCard(rx)).join('');
+  attachCancelEmptyRxListeners(container);
 }
 
 async function loadChartTransfers(patientId) {
@@ -1339,30 +1341,80 @@ async function loadPrescriptions() {
   if (error) { container.innerHTML = `<div class="error-state">${escapeHtml(error.message)}</div>`; return; }
   if (!data || data.length === 0) { container.innerHTML = '<div class="empty-state">No prescriptions.</div>'; return; }
   container.innerHTML = data.map(rx => renderRxCard(rx)).join('');
+  attachCancelEmptyRxListeners(container);
+}
+
+function attachCancelEmptyRxListeners(container) {
+  if (!container) return;
+  container.querySelectorAll('.cancel-empty-rx-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const rxId = btn.dataset.rxId;
+      const rxNum = btn.dataset.rxNum || 'Prescription';
+      const confirmed = await showConfirm(
+        `Are you sure you want to cancel empty prescription ${rxNum}? It has zero medication items. This action will mark it as cancelled and record the reason in the audit log.`,
+        'Cancel Empty Prescription',
+        'Yes, Cancel Prescription',
+        'danger'
+      );
+      if (!confirmed) return;
+      btn.disabled = true;
+      btn.textContent = 'Cancelling...';
+      try {
+        const { error } = await cancelEmptyPrescription(rxId, 'Cancelled empty prescription with zero items by prescribing doctor');
+        if (error) throw error;
+        showToast(`Prescription ${rxNum} cancelled successfully`, 'success');
+        if (currentView === 'prescriptions') loadPrescriptions();
+        if (currentView === 'chart' && chartContext?.patient?.id) {
+          loadChartPrescriptions(chartContext.patient.id);
+        }
+      } catch (err) {
+        console.error('Failed to cancel empty prescription:', err);
+        showToast(err.message || 'Failed to cancel empty prescription', 'error');
+        btn.disabled = false;
+        btn.textContent = '🚫 Cancel Empty Prescription';
+      }
+    });
+  });
 }
 
 function renderRxCard(rx) {
   const patient = rx.patient || {};
-  const items = rx.prescription_items || [];
+  const items = rx.prescription_items || rx.items || [];
+  const rxNum = rx.prescription_number || rx.rx_number || rx.id.slice(0, 8);
+  const isEmpty = items.length === 0;
+  const canCancel = isEmpty && (rx.status === 'active' || rx.status === 'draft');
+
   return `
-    <div class="list-item">
+    <div class="list-item" style="${isEmpty ? 'border-left:3px solid var(--danger,#b91c1c);' : ''}">
       <div class="list-item-body">
         <div class="list-item-title">
-          RX #${escapeHtml(rx.rx_number || rx.id.slice(0, 8))} —
+          RX #${escapeHtml(rxNum)} —
           ${escapeHtml(patient.first_name || '')} ${escapeHtml(patient.last_name || '')}
         </div>
         <div class="list-item-meta">HN: ${escapeHtml(patient.hospital_number || '—')} · ${formatDate(rx.created_at, 'datetime')}</div>
-        <div style="margin-top:.35rem">
-          ${items.map(i => `
-            <div style="font-size:.82rem;margin-top:.2rem">
-              💊 ${escapeHtml(i.medicine_name)} ${escapeHtml(i.strength || '')} — ${escapeHtml(i.dosage || '')} ${escapeHtml(i.frequency || '')}
-            </div>
-          `).join('')}
-        </div>
+        
+        ${isEmpty ? `
+          <div style="margin-top:.4rem;padding:.4rem .6rem;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:.82rem;font-weight:500">
+            ⚠️ Empty Prescription — No medication items were recorded for this order.
+          </div>
+        ` : `
+          <div style="margin-top:.35rem">
+            ${items.map(i => `
+              <div style="font-size:.82rem;margin-top:.2rem">
+                💊 ${escapeHtml(i.medicine_name)} ${escapeHtml(i.strength || '')} — ${escapeHtml(i.dosage || '')} ${escapeHtml(i.frequency || '')} ${i.duration ? `· ${escapeHtml(i.duration)}` : ''} · Qty: ${escapeHtml(String(i.quantity || '—'))}
+              </div>
+            `).join('')}
+          </div>
+        `}
         ${rx.notes ? `<div class="list-item-note">${escapeHtml(rx.notes)}</div>` : ''}
       </div>
-      <div class="list-item-aside">
+      <div class="list-item-aside" style="display:flex;flex-direction:column;align-items:flex-end;gap:.35rem">
         <span class="badge ${getStatusBadgeClass(rx.status)}">${escapeHtml(rx.status || '')}</span>
+        ${canCancel ? `
+          <button class="btn btn-outline btn-xs cancel-empty-rx-btn" data-rx-id="${escapeHtml(rx.id)}" data-rx-num="${escapeHtml(rxNum)}" style="color:var(--danger,#b91c1c);border-color:var(--danger,#b91c1c);white-space:nowrap">
+            🚫 Cancel Empty Prescription
+          </button>
+        ` : ''}
       </div>
     </div>
   `;
@@ -1425,8 +1477,8 @@ function addRxItemRow() {
         <input type="text" class="form-control" data-field="frequency" placeholder="e.g. TDS" required/>
       </div>
       <div class="form-group">
-        <label class="form-label" style="font-size:.75rem">Duration</label>
-        <input type="text" class="form-control" data-field="duration" placeholder="e.g. 7 days"/>
+        <label class="form-label" style="font-size:.75rem">Duration *</label>
+        <input type="text" class="form-control" data-field="duration" placeholder="e.g. 7 days" required/>
       </div>
       <div class="form-group">
         <label class="form-label" style="font-size:.75rem">Qty *</label>
@@ -1447,7 +1499,10 @@ async function submitPrescription() {
   const patientId = document.getElementById('rx-patient-id').value;
   if (!patientId) { showToast('Please select a patient', 'warning'); return; }
   const rows = document.querySelectorAll('.rx-item-row');
-  if (rows.length === 0) { showToast('Please add at least one medicine', 'warning'); return; }
+  if (rows.length === 0) {
+    showToast('Please add at least one medicine before submitting this prescription.', 'warning');
+    return;
+  }
 
   const items = [];
   let validationError = null;
@@ -1459,7 +1514,7 @@ async function submitPrescription() {
     const route = row.querySelector('[data-field="route"]').value;
     const frequency = row.querySelector('[data-field="frequency"]').value.trim();
     const duration = row.querySelector('[data-field="duration"]').value.trim();
-    const qtyVal = parseInt(row.querySelector('[data-field="quantity"]').value);
+    const qtyVal = parseInt(row.querySelector('[data-field="quantity"]').value, 10);
     const strength = row.querySelector('[data-field="strength"]').value.trim();
     const instructions = row.querySelector('[data-field="instructions"]').value.trim();
 
@@ -1475,6 +1530,10 @@ async function submitPrescription() {
       validationError = `Medicine #${idx + 1} (${name}): Frequency is required (e.g. TDS, BD, Once daily).`;
       return;
     }
+    if (!duration) {
+      validationError = `Medicine #${idx + 1} (${name}): Duration is required (e.g. 5 days, 1 week).`;
+      return;
+    }
     if (!qtyVal || qtyVal <= 0 || isNaN(qtyVal)) {
       validationError = `Medicine #${idx + 1} (${name}): Quantity must be a positive number greater than 0.`;
       return;
@@ -1486,7 +1545,7 @@ async function submitPrescription() {
       dosage: dosage,
       route: route || 'oral',
       frequency: frequency,
-      duration: duration || null,
+      duration: duration,
       quantity: qtyVal,
       instructions: instructions || null,
     });
@@ -1497,7 +1556,7 @@ async function submitPrescription() {
     return;
   }
   if (items.length === 0) {
-    showToast('Please add at least one medicine', 'warning');
+    showToast('Please add at least one medicine before submitting this prescription.', 'warning');
     return;
   }
 
@@ -1506,29 +1565,17 @@ async function submitPrescription() {
   btn.textContent = 'Submitting...';
 
   try {
-    const { data: user } = await supabase.auth.getUser();
-    const { data: rx, error } = await supabase.from('prescriptions').insert([{
+    const rxData = {
       patient_id: patientId,
       encounter_id: chartContext?.encounterId || null,
-      prescribing_doctor_id: user.user.id,
       notes: document.getElementById('rx-notes').value.trim() || null,
-      status: 'active',
-    }]).select().single();
+    };
+
+    const { data: rx, error } = await createPrescription(rxData, items);
 
     if (error) {
-      console.error('Failed to create prescription parent record:', error);
+      console.error('Failed to create prescription:', error);
       showToast(error.message || 'Failed to create prescription', 'error');
-      btn.disabled = false;
-      btn.textContent = 'Submit Prescription';
-      return;
-    }
-
-    const itemsToInsert = items.map(i => ({ ...i, prescription_id: rx.id }));
-    const { error: itemsError } = await supabase.from('prescription_items').insert(itemsToInsert);
-
-    if (itemsError) {
-      console.error('Failed to insert prescription items:', itemsError);
-      showToast(`Prescription created, but medication items failed: ${itemsError.message}`, 'error');
       btn.disabled = false;
       btn.textContent = 'Submit Prescription';
       return;

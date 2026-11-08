@@ -535,7 +535,43 @@ async function loadPrescriptions() {
     return;
   }
 
-  container.innerHTML = data.map(rx => renderRxCard(rx)).join('');
+  // Partition into valid prescriptions (>= 1 item) and invalid empty prescriptions (0 items)
+  const validRxs = data.filter(rx => rx.prescription_items && rx.prescription_items.length > 0);
+  const emptyRxs = data.filter(rx => !rx.prescription_items || rx.prescription_items.length === 0);
+
+  let html = '';
+
+  // Show isolated empty prescriptions alert section if any exist and filter matches
+  if (emptyRxs.length > 0 && (rxFilter === 'all' || rxFilter === 'active')) {
+    html += `
+      <div class="alert alert-warning" style="margin-bottom:1.25rem;border-radius:10px;padding:1rem;background:#fffbeb;border:1px solid #f59e0b;color:#92400e">
+        <div style="display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:.95rem;margin-bottom:.35rem">
+          <span>⚠️</span> Attention Required: ${emptyRxs.length} Empty Prescription${emptyRxs.length > 1 ? 's' : ''} (Zero Medicines)
+        </div>
+        <div style="font-size:.85rem;line-height:1.4;margin-bottom:.75rem">
+          The following prescription orders were submitted without medication items. They have been isolated from the active dispensing queue and cannot be dispensed. The prescribing doctor or an administrator should cancel or re-issue them.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.5rem">
+          ${emptyRxs.map(rx => renderRxCard(rx, true)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  if (validRxs.length === 0 && emptyRxs.length === 0) {
+    container.innerHTML = '<div class="empty-state">No prescriptions found.</div>';
+    return;
+  }
+
+  if (validRxs.length > 0) {
+    html += validRxs.map(rx => renderRxCard(rx, false)).join('');
+  } else if (emptyRxs.length > 0 && rxFilter !== 'all' && rxFilter !== 'active') {
+    html += emptyRxs.map(rx => renderRxCard(rx, true)).join('');
+  } else if (validRxs.length === 0) {
+    html += '<div class="empty-state">No valid prescriptions awaiting dispensing.</div>';
+  }
+
+  container.innerHTML = html;
 
   container.querySelectorAll('.dispense-rx-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -546,45 +582,58 @@ async function loadPrescriptions() {
   });
 }
 
-function renderRxCard(rx) {
+function renderRxCard(rx, isIsolatedEmpty = false) {
   const patient = rx.patient || {};
   const items   = rx.prescription_items || [];
   const name    = `${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Unknown';
+  const rxNum   = rx.prescription_number || rx.rx_number || rx.id.slice(0, 8);
+  const isEmpty = items.length === 0;
 
   return `
-    <div class="list-item" style="flex-direction:column;align-items:stretch;gap:.5rem">
+    <div class="list-item" style="flex-direction:column;align-items:stretch;gap:.5rem;${isEmpty ? 'border-left:3px solid var(--danger,#b91c1c);background:var(--bg-primary,#fff);' : ''}">
       <div style="display:flex;align-items:flex-start;gap:.75rem">
         <div class="list-item-avatar">${getInitials(name)}</div>
         <div style="flex:1">
           <div class="list-item-title">
-            RX #${escapeHtml(rx.prescription_number || rx.rx_number || rx.id.slice(0, 8))} —
+            RX #${escapeHtml(rxNum)} —
             ${escapeHtml(name)}
             <span class="text-muted" style="font-weight:400">· ${escapeHtml(patient.hospital_number || '—')}</span>
+            ${isEmpty ? `<span class="badge" style="background:#fee2e2;color:#991b1b;font-weight:600;margin-left:.5rem;font-size:.72rem">Zero Items</span>` : ''}
           </div>
           <div class="list-item-meta">
             Dr. ${escapeHtml(rx.prescribing_doctor?.full_name || '—')} · ${formatDate(rx.created_at, 'datetime')}
           </div>
-          <div style="margin-top:.4rem">
-            ${items.map(item => `
-              <div style="font-size:.82rem;margin-top:.25rem">
-                💊 <strong>${escapeHtml(item.medicine_name)}</strong> ${escapeHtml(item.strength || '')}
-                — ${escapeHtml(item.dosage || '')} · ${escapeHtml(item.route || '')} · ${escapeHtml(item.frequency || '')}
-                ${item.duration ? `· ${escapeHtml(item.duration)}` : ''}
-                ${item.quantity ? `· Qty: <strong>${escapeHtml(String(item.quantity))}</strong>` : ''}
-                ${item.quantity_dispensed ? `<span style="color:var(--success)"> (${escapeHtml(String(item.quantity_dispensed))} dispensed)</span>` : ''}
-                ${item.instructions ? `<div style="font-size:.76rem;color:var(--text-muted);margin-left:1.2rem"><em>Instructions: ${escapeHtml(item.instructions)}</em></div>` : ''}
-              </div>
-            `).join('')}
-          </div>
+          ${isEmpty ? `
+            <div style="font-size:.82rem;color:var(--danger,#b91c1c);margin-top:.4rem;padding:.4rem .6rem;background:#fee2e2;border-radius:6px;line-height:1.4">
+              ⚠️ This prescription contains no medicines and cannot be dispensed. Please notify Dr. ${escapeHtml(rx.prescribing_doctor?.full_name || 'the prescribing doctor')} or an administrator to cancel or re-issue.
+            </div>
+          ` : `
+            <div style="margin-top:.4rem">
+              ${items.map(item => `
+                <div style="font-size:.82rem;margin-top:.25rem">
+                  💊 <strong>${escapeHtml(item.medicine_name)}</strong> ${escapeHtml(item.strength || '')}
+                  — ${escapeHtml(item.dosage || '')} · ${escapeHtml(item.route || '')} · ${escapeHtml(item.frequency || '')}
+                  ${item.duration ? `· ${escapeHtml(item.duration)}` : ''}
+                  ${item.quantity ? `· Qty: <strong>${escapeHtml(String(item.quantity))}</strong>` : ''}
+                  ${item.quantity_dispensed ? `<span style="color:var(--success)"> (${escapeHtml(String(item.quantity_dispensed))} dispensed)</span>` : ''}
+                  ${item.instructions ? `<div style="font-size:.76rem;color:var(--text-muted);margin-left:1.2rem"><em>Instructions: ${escapeHtml(item.instructions)}</em></div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          `}
           ${rx.notes ? `<div class="list-item-note" style="margin-top:.4rem">${escapeHtml(rx.notes)}</div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
           <span class="badge ${getStatusBadgeClass(rx.status)}">${escapeHtml(rx.status || '')}</span>
-          ${rx.status !== 'dispensed' && rx.status !== 'cancelled' ? `
+          ${isEmpty ? `
+            <button class="btn btn-secondary btn-xs" disabled style="opacity:.6;cursor:not-allowed;white-space:nowrap" title="Prescriptions with zero items cannot be dispensed">
+              Cannot Dispense
+            </button>
+          ` : (rx.status !== 'dispensed' && rx.status !== 'cancelled' ? `
             <button class="btn btn-primary btn-xs dispense-rx-btn" data-rx-id="${escapeHtml(rx.id)}">
               💊 Dispense
             </button>
-          ` : ''}
+          ` : '')}
         </div>
       </div>
     </div>
@@ -927,9 +976,11 @@ function renderDispenseRxDetail(rx) {
   const patient = rx.patient || {};
   const items   = rx.prescription_items || [];
   const name    = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+  const rxNum   = rx.prescription_number || rx.rx_number || rx.id.slice(0, 8);
+  const isEmpty = items.length === 0;
 
   return `
-    <div style="background:var(--bg-primary,#fff);border:1px solid var(--border-color);border-radius:12px;padding:1.1rem;margin-bottom:1rem">
+    <div style="background:var(--bg-primary,#fff);border:1px solid ${isEmpty ? 'var(--danger,#b91c1c)' : 'var(--border-color)'};border-radius:12px;padding:1.1rem;margin-bottom:1rem">
       <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem">
         <div class="list-item-avatar">${getInitials(name)}</div>
         <div style="flex:1">
@@ -941,26 +992,34 @@ function renderDispenseRxDetail(rx) {
         <span class="badge ${getStatusBadgeClass(rx.status)}">${escapeHtml(rx.status || '')}</span>
       </div>
       <div style="font-size:.83rem;color:var(--text-muted);margin-bottom:.6rem">
-        RX #${escapeHtml(rx.prescription_number || rx.rx_number || rx.id.slice(0, 8))} ·
+        RX #${escapeHtml(rxNum)} ·
         Dr. ${escapeHtml(rx.prescribing_doctor?.full_name || '—')} ·
         ${formatDate(rx.created_at, 'datetime')}
       </div>
-      <div style="background:var(--bg-secondary,#f8fafc);border-radius:8px;padding:.75rem;margin-bottom:.75rem">
-        ${items.map(item => `
-          <div style="font-size:.85rem;margin-bottom:.35rem;padding-bottom:.35rem;border-bottom:1px solid var(--border-color)">
-            💊 <strong>${escapeHtml(item.medicine_name)}</strong> ${escapeHtml(item.strength || '')}
-            <span style="color:var(--text-muted)">— ${escapeHtml(item.dosage || '')} · ${escapeHtml(item.route || '')} · ${escapeHtml(item.frequency || '')} ${item.duration ? `for ${escapeHtml(item.duration)}` : ''}</span>
-            <span style="float:right;font-size:.78rem">
-              Ordered: <strong>${escapeHtml(String(item.quantity || 0))}</strong>
-              · Dispensed: <strong style="color:var(--success)">${escapeHtml(String(item.quantity_dispensed || 0))}</strong>
-            </span>
-            ${item.instructions ? `<div style="font-size:.76rem;color:var(--text-muted);margin-top:.2rem"><em>Instructions: ${escapeHtml(item.instructions)}</em></div>` : ''}
-          </div>
-        `).join('')}
-      </div>
-      ${rx.status !== 'dispensed' && rx.status !== 'cancelled' ? `
+      ${isEmpty ? `
+        <div class="alert alert-warning" style="padding:.75rem;border-radius:8px;background:var(--warning-light,#fef3c7);color:var(--warning-dark,#92400e);font-size:.85rem;margin-bottom:.75rem;border:1px solid var(--warning,#f59e0b)">
+          ⚠️ This prescription contains no medicines and cannot be dispensed. Please contact the prescribing doctor or an administrator to resolve it.
+        </div>
+      ` : `
+        <div style="background:var(--bg-secondary,#f8fafc);border-radius:8px;padding:.75rem;margin-bottom:.75rem">
+          ${items.map(item => `
+            <div style="font-size:.85rem;margin-bottom:.35rem;padding-bottom:.35rem;border-bottom:1px solid var(--border-color)">
+              💊 <strong>${escapeHtml(item.medicine_name)}</strong> ${escapeHtml(item.strength || '')}
+              <span style="color:var(--text-muted)">— ${escapeHtml(item.dosage || '')} · ${escapeHtml(item.route || '')} · ${escapeHtml(item.frequency || '')} ${item.duration ? `for ${escapeHtml(item.duration)}` : ''}</span>
+              <span style="float:right;font-size:.78rem">
+                Ordered: <strong>${escapeHtml(String(item.quantity || 0))}</strong>
+                · Dispensed: <strong style="color:var(--success)">${escapeHtml(String(item.quantity_dispensed || 0))}</strong>
+              </span>
+              ${item.instructions ? `<div style="font-size:.76rem;color:var(--text-muted);margin-top:.2rem"><em>Instructions: ${escapeHtml(item.instructions)}</em></div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      `}
+      ${isEmpty ? `
+        <button class="btn btn-secondary btn-sm" disabled style="opacity:.6;cursor:not-allowed">Cannot Dispense (0 Items)</button>
+      ` : (rx.status !== 'dispensed' && rx.status !== 'cancelled' ? `
         <button class="btn btn-primary open-dispense-modal-btn" data-rx-id="${escapeHtml(rx.id)}">💊 Dispense Medication</button>
-      ` : `<div class="badge badge-success">Fully Dispensed</div>`}
+      ` : `<div class="badge badge-success">Fully Dispensed</div>`)}
     </div>
   `;
 }
@@ -973,17 +1032,47 @@ function openDispenseModal(rx, patient) {
   _dispenseRx      = rx;
   _dispensePatient = patient;
 
-  const overlay = document.getElementById('dispense-modal-overlay');
-  const content = document.getElementById('dispense-modal-content');
+  const overlay    = document.getElementById('dispense-modal-overlay');
+  const content    = document.getElementById('dispense-modal-content');
+  const confirmBtn = document.getElementById('dispense-modal-confirm');
   if (!overlay || !content) return;
 
   const items       = rx.prescription_items || [];
   const patientName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+  const rxNum       = rx.prescription_number || rx.rx_number || rx.id.slice(0, 8);
+
+  // If empty prescription with 0 items:
+  if (items.length === 0) {
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    content.innerHTML = `
+      <div style="margin-bottom:1rem;padding:.75rem;background:var(--bg-secondary,#f8fafc);border-radius:8px">
+        <div style="font-weight:700">${escapeHtml(patientName)}</div>
+        <div style="font-size:.8rem;color:var(--text-muted)">HN: ${escapeHtml(patient.hospital_number || '—')} · RX #${escapeHtml(rxNum)}</div>
+      </div>
+      <div class="alert alert-warning" style="display:flex;align-items:flex-start;gap:.75rem;padding:1rem;border-radius:8px;background:var(--warning-light,#fef3c7);color:var(--warning-dark,#92400e);border:1px solid var(--warning,#f59e0b);margin:.5rem 0">
+        <span style="font-size:1.5rem;line-height:1">⚠️</span>
+        <div>
+          <div style="font-weight:700;margin-bottom:.25rem">Prescription Contains No Medicines</div>
+          <div style="font-size:.9rem;line-height:1.4">This prescription contains no medicines and cannot be dispensed. Please contact the prescribing doctor or an administrator to resolve it.</div>
+        </div>
+      </div>
+    `;
+    overlay.classList.add('active');
+    return;
+  }
+
+  // Prescription has items
+  const allDispensed = items.length > 0 && items.every(i => (i.quantity_dispensed || 0) >= (i.quantity || 0));
+  if (confirmBtn) {
+    confirmBtn.style.display = allDispensed ? 'none' : '';
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'Confirm Dispense';
+  }
 
   content.innerHTML = `
     <div style="margin-bottom:1rem;padding:.75rem;background:var(--bg-secondary,#f8fafc);border-radius:8px">
       <div style="font-weight:700">${escapeHtml(patientName)}</div>
-      <div style="font-size:.8rem;color:var(--text-muted)">HN: ${escapeHtml(patient.hospital_number || '—')} · RX #${escapeHtml(rx.prescription_number || rx.rx_number || rx.id.slice(0, 8))}</div>
+      <div style="font-size:.8rem;color:var(--text-muted)">HN: ${escapeHtml(patient.hospital_number || '—')} · RX #${escapeHtml(rxNum)}</div>
     </div>
 
     ${items.filter(i => (i.quantity_dispensed || 0) < (i.quantity || 0)).map(item => {
@@ -1013,7 +1102,7 @@ function openDispenseModal(rx, patient) {
       `;
     }).join('')}
 
-    ${items.every(i => (i.quantity_dispensed || 0) >= (i.quantity || 0)) ? '<div class="empty-state">All items already dispensed.</div>' : ''}
+    ${allDispensed ? '<div class="empty-state">All items already dispensed.</div>' : ''}
   `;
 
   overlay.classList.add('active');
@@ -1021,6 +1110,12 @@ function openDispenseModal(rx, patient) {
 
 async function confirmDispense() {
   if (!_dispenseRx || !_dispensePatient) return;
+
+  const items = _dispenseRx.prescription_items || [];
+  if (items.length === 0) {
+    showToast('This prescription contains no medicines and cannot be dispensed.', 'error');
+    return;
+  }
 
   const btn        = document.getElementById('dispense-modal-confirm');
   const inputs     = document.querySelectorAll('.dispense-qty-input');
@@ -1038,8 +1133,6 @@ async function confirmDispense() {
 
   btn.disabled    = true;
   btn.textContent = 'Processing...';
-
-  const items = _dispenseRx.prescription_items || [];
 
   for (const d of toDispense) {
     const item       = items.find(i => i.id === d.itemId);
@@ -1085,15 +1178,14 @@ async function confirmDispense() {
     .select('quantity, quantity_dispensed')
     .eq('prescription_id', _dispenseRx.id);
 
-  let rxStatus = 'dispensed';
-  if (updatedItems) {
+  if (updatedItems && updatedItems.length > 0) {
     const allFull = updatedItems.every(i => (i.quantity_dispensed || 0) >= (i.quantity || 0));
-    rxStatus = allFull ? 'dispensed' : 'partially_dispensed';
-  }
+    const rxStatus = allFull ? 'dispensed' : 'partially_dispensed';
 
-  await supabase.from('prescriptions')
-    .update({ status: rxStatus })
-    .eq('id', _dispenseRx.id);
+    await supabase.from('prescriptions')
+      .update({ status: rxStatus })
+      .eq('id', _dispenseRx.id);
+  }
 
   btn.disabled    = false;
   btn.textContent = 'Confirm Dispense';

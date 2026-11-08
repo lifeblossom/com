@@ -355,21 +355,119 @@ export async function getPrescriptions(patientId, status = null) {
 }
 
 export async function createPrescription(prescriptionData, items = []) {
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return { data: null, error: new Error('Please add at least one medicine before submitting this prescription.') };
+  }
+
+  // Validate every item has required fields: medicine_name, dosage, frequency, duration, quantity > 0
+  for (let idx = 0; idx < items.length; idx++) {
+    const it = items[idx];
+    const name = it.medicine_name?.trim();
+    if (!name) return { data: null, error: new Error(`Medicine #${idx + 1}: Name is required.`) };
+    if (!it.dosage?.trim()) return { data: null, error: new Error(`Medicine #${idx + 1} (${name}): Dosage is required.`) };
+    if (!it.frequency?.trim()) return { data: null, error: new Error(`Medicine #${idx + 1} (${name}): Frequency is required.`) };
+    if (!it.duration?.trim()) return { data: null, error: new Error(`Medicine #${idx + 1} (${name}): Duration is required.`) };
+    const qty = parseInt(it.quantity, 10);
+    if (!qty || qty <= 0 || isNaN(qty)) return { data: null, error: new Error(`Medicine #${idx + 1} (${name}): Prescribed quantity must be greater than 0.`) };
+  }
+
   const { data: { user } } = await supabase.auth.getUser();
+
+  // Attempt atomic RPC creation first (all-or-nothing in a single DB transaction)
+  try {
+    const { data: rpcRes, error: rpcErr } = await supabase.rpc('create_prescription_atomic', {
+      p_patient_id: prescriptionData.patient_id,
+      p_encounter_id: prescriptionData.encounter_id || null,
+      p_notes: prescriptionData.notes || null,
+      p_items: items,
+    });
+    if (!rpcErr && rpcRes?.prescription) {
+      return { data: rpcRes.prescription, error: null };
+    }
+    // If error is a business validation error (not missing function), return it
+    if (rpcErr && !rpcErr.message?.includes('function') && !rpcErr.message?.includes('not found') && rpcErr.code !== 'PGRST202') {
+      return { data: null, error: rpcErr };
+    }
+  } catch (err) {
+    console.warn('RPC create_prescription_atomic unavailable, using transactional client workflow:', err);
+  }
+
+  // Fallback transactional client workflow:
+  // 1. Insert parent prescription as 'draft'
   const { data: rx, error: rxErr } = await supabase
     .from('prescriptions')
-    .insert([{ ...prescriptionData, prescribing_doctor_id: user.id, status: 'active' }])
+    .insert([{
+      ...prescriptionData,
+      prescribing_doctor_id: user.id,
+      status: 'draft',
+    }])
     .select()
     .single();
+
   if (rxErr) return { data: null, error: rxErr };
 
-  if (items.length > 0) {
-    const { error: itemErr } = await supabase
-      .from('prescription_items')
-      .insert(items.map(item => ({ ...item, prescription_id: rx.id })));
-    if (itemErr) return { data: rx, error: itemErr };
+  // 2. Insert items linked to the draft prescription
+  const itemsToInsert = items.map(item => ({ ...item, prescription_id: rx.id }));
+  const { error: itemErr } = await supabase
+    .from('prescription_items')
+    .insert(itemsToInsert);
+
+  if (itemErr) {
+    // If items fail, immediately cancel the draft prescription so no empty prescription is ever active
+    await supabase
+      .from('prescriptions')
+      .update({
+        status: 'cancelled',
+        notes: (prescriptionData.notes ? prescriptionData.notes + '\n' : '') + '[Failed during item creation: ' + itemErr.message + ']'
+      })
+      .eq('id', rx.id);
+    return { data: null, error: itemErr };
   }
-  return { data: rx, error: null };
+
+  // 3. Only once all items are confirmed inserted, activate the prescription
+  const { data: activeRx, error: activateErr } = await supabase
+    .from('prescriptions')
+    .update({ status: 'active' })
+    .eq('id', rx.id)
+    .select()
+    .single();
+
+  if (activateErr) {
+    // If activation fails, cancel the draft
+    await supabase.from('prescriptions').update({ status: 'cancelled' }).eq('id', rx.id);
+    return { data: null, error: activateErr };
+  }
+
+  return { data: activeRx || rx, error: null };
+}
+
+export async function cancelEmptyPrescription(prescriptionId, reason = 'Cancelled empty prescription with zero items') {
+  // 1. Try atomic RPC function
+  try {
+    const { data: rpcRes, error: rpcErr } = await supabase.rpc('cancel_empty_prescription', {
+      p_prescription_id: prescriptionId,
+      p_reason: reason
+    });
+    if (!rpcErr) return { data: rpcRes, error: null };
+    if (!rpcErr.message?.includes('function') && !rpcErr.message?.includes('not found') && rpcErr.code !== 'PGRST202') {
+      return { data: null, error: rpcErr };
+    }
+  } catch (err) {
+    console.warn('RPC cancel_empty_prescription unavailable, using direct update:', err);
+  }
+
+  // 2. Direct update fallback (works for admin, or for doctor once update policy is updated)
+  const { data, error } = await supabase
+    .from('prescriptions')
+    .update({
+      status: 'cancelled',
+      notes: '[Cancelled: ' + reason + ']'
+    })
+    .eq('id', prescriptionId)
+    .select()
+    .single();
+
+  return { data, error };
 }
 
 // ─── Dispensing ───────────────────────────────────────────────────────────────
