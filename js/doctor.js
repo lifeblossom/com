@@ -13,7 +13,7 @@ import {
   calculateBMI, interpretBMI, escapeHtml, formatTransferStatus,
 } from './utils.js';
 import { countUnreadInbox, getMyInbox, acknowledgeTransfer, updateTransferStatus, sendPatientFile, getPatientTransfers, getPatientTransferHistory } from './api/transfers-api.js';
-import { searchPatients, getPatient, getPatientEncounters, getPatientAllergies, getEncounter } from './api/patients-api.js';
+import { searchPatients, getPatient, getPatientEncounters, getPatientAllergies, getEncounter, createEncounter } from './api/patients-api.js';
 import { recordVitals, getPatientVitals, createNote, getPatientNotes, signNote, addDiagnosis, getPatientDiagnoses } from './api/clinical-api.js';
 import { supabase } from './supabase-client.js';
 import { listPatientDocuments, uploadPatientDocument, createPatientDocumentUrl } from './api/documents-api.js';
@@ -440,10 +440,109 @@ function bindInboxItemActions(container, data) {
   });
 }
 
+// ─── Encounter Management ───────────────────────────────────────────────────
+/**
+ * Ensures that an active, open encounter exists for the current doctor and patient.
+ * Reuses an existing open encounter opened by this doctor if present;
+ * otherwise creates a new encounter with patient_id, opened_by, status: 'open', and chief_complaint.
+ *
+ * @param {string} patientId
+ * @param {Object} [transfer]
+ * @returns {Promise<Object|null>} The encounter record, or null on failure.
+ */
+async function ensureDoctorEncounter(patientId, transfer = null) {
+  if (!patientId) return null;
+
+  // 1. Verify active doctor profile
+  if (!currentProfile || !currentProfile.id) {
+    const profile = await requireAuth();
+    if (profile && profile.role === 'doctor') {
+      currentProfile = profile;
+    } else {
+      showToast('Active doctor profile required to open clinical encounters.', 'error');
+      return null;
+    }
+  }
+
+  if (currentProfile.role !== 'doctor') {
+    showToast('Only doctors can establish clinical encounters.', 'error');
+    return null;
+  }
+
+  try {
+    // 2. Check for an existing open encounter for this patient where opened_by = current doctor
+    const { data: existingEncounters, error: queryError } = await supabase
+      .from('patient_encounters')
+      .select('*')
+      .eq('patient_id', patientId)
+      .eq('opened_by', currentProfile.id)
+      .eq('status', 'open')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (queryError) {
+      console.error('Failed to query existing doctor encounters:', queryError);
+      showToast(`Encounter verification error: ${queryError.message}`, 'error');
+      return null;
+    }
+
+    // 3. Reuse existing open encounter if found (prevents duplicate encounters on revisit)
+    if (existingEncounters && existingEncounters.length > 0) {
+      return existingEncounters[0];
+    }
+
+    // 4. Otherwise create a new encounter with confirmed schema columns only
+    const chiefComplaint = (transfer?.message && transfer.message.trim()) ? transfer.message.trim() : null;
+
+    const payload = {
+      patient_id: patientId,
+      opened_by: currentProfile.id,
+      status: 'open',
+      chief_complaint: chiefComplaint,
+    };
+
+    const { data: newEncounter, error: insertError } = await createEncounter(payload);
+
+    if (insertError) {
+      console.error('Failed to create new doctor encounter:', insertError);
+      showToast(`Failed to establish doctor encounter: ${insertError.message}`, 'error');
+      return null;
+    }
+
+    return newEncounter;
+  } catch (err) {
+    console.error('Unexpected error in ensureDoctorEncounter:', err);
+    showToast(`Unexpected error establishing encounter: ${err.message || err}`, 'error');
+    return null;
+  }
+}
+
+function renderBannerEncounterInfo(transfer, encounter) {
+  const container = document.getElementById('banner-transfer-info');
+  if (!container) return;
+
+  const parts = [];
+  if (encounter) {
+    const encNum = encounter.encounter_number || (encounter.id ? encounter.id.slice(0, 8) : 'Active');
+    parts.push(`<span class="badge badge-success" title="Active Doctor Encounter">ENC: ${escapeHtml(encNum)}</span>`);
+  } else {
+    parts.push(`<span class="badge badge-danger" title="No active clinical encounter">No Active Encounter</span>`);
+  }
+
+  if (transfer) {
+    parts.push(`
+      <span class="badge ${getStatusBadgeClass(transfer.status)}">${formatTransferStatus(transfer.status)}</span>
+      <div style="font-size:.8rem;margin-top:.3rem">From: ${escapeHtml(transfer.sender?.full_name || '—')}</div>
+    `);
+  }
+
+  container.innerHTML = parts.join(' ');
+}
+
 // ─── Patient Chart ────────────────────────────────────────────────────────────
 async function loadPatientChart(patient, transfer, fromView = 'lookup') {
   chartBackView = fromView;
-  chartContext = { patient, transfer, encounterId: transfer?.encounter_id };
+  chartContext = { patient, transfer, encounterId: transfer?.encounter_id || null, encounter: null };
   switchView('chart');
   activateChartTab('summary');
 
@@ -457,12 +556,19 @@ async function loadPatientChart(patient, transfer, fromView = 'lookup') {
     : '—';
   document.getElementById('banner-sex').textContent = patient.sex || '—';
 
-  if (transfer) {
-    document.getElementById('banner-transfer-info').innerHTML = `
-      <span class="badge ${getStatusBadgeClass(transfer.status)}">${formatTransferStatus(transfer.status)}</span>
-      <div style="font-size:.8rem;margin-top:.3rem">From: ${escapeHtml(transfer.sender?.full_name || '—')}</div>
-    `;
+  // Ensure active doctor encounter
+  const encounter = await ensureDoctorEncounter(patient.id, transfer);
+  if (encounter) {
+    chartContext.encounterId = encounter.id;
+    chartContext.encounter = encounter;
+  } else {
+    chartContext.encounterId = null;
+    chartContext.encounter = null;
+    showToast('Warning: Unable to establish active clinical encounter. Clinical actions are disabled.', 'warning');
   }
+
+  // Render encounter & transfer badges
+  renderBannerEncounterInfo(transfer, encounter);
 
   // Allergies
   const allergyEl = document.getElementById('banner-allergies');
@@ -799,13 +905,18 @@ async function loadChartNotes(patientId, encounterId) {
 async function saveNote() {
   const content = document.getElementById('note-textarea').value.trim();
   if (!content) { showToast('Please enter note content', 'warning'); return; }
+  if (!chartContext?.patient) { showToast('No patient selected', 'warning'); return; }
   const { patient, encounterId } = chartContext;
+  if (!encounterId) {
+    showToast('Cannot save clinical note: No active clinical encounter found. Please reopen the patient chart.', 'error');
+    return;
+  }
   const { data: user } = await supabase.auth.getUser();
   const shouldSign = document.getElementById('note-sign-check').checked;
 
   const { data, error } = await createNote({
     patient_id: patient.id,
-    encounter_id: encounterId || null,
+    encounter_id: encounterId,
     note_type: 'clinical',
     content,
     author: user.user.id,
@@ -845,12 +956,17 @@ async function loadChartDiagnoses(patientId, encounterId) {
 async function saveDiagnosis() {
   const name = document.getElementById('dx-name').value.trim();
   if (!name) { showToast('Please enter diagnosis name', 'warning'); return; }
+  if (!chartContext?.patient) { showToast('No patient selected', 'warning'); return; }
   const { patient, encounterId } = chartContext;
+  if (!encounterId) {
+    showToast('Cannot record diagnosis: No active clinical encounter found. Please reopen the patient chart.', 'error');
+    return;
+  }
   const { data: user } = await supabase.auth.getUser();
 
   const { error } = await addDiagnosis({
     patient_id: patient.id,
-    encounter_id: encounterId || null,
+    encounter_id: encounterId,
     icd_code: document.getElementById('dx-icd').value.trim() || null,
     diagnosis_name: name,
     notes: document.getElementById('dx-notes').value.trim() || null,
@@ -1220,6 +1336,10 @@ function renderLabReportContent(order, results) {
 }
 
 function openLabModal(presetPatientId) {
+  if (presetPatientId && chartContext?.patient && !chartContext?.encounterId) {
+    showToast('Cannot order lab tests: No active doctor-patient encounter established.', 'error');
+    return;
+  }
   document.getElementById('lab-items-container').innerHTML = '';
   document.getElementById('lab-indication').value = '';
   document.getElementById('lab-patient-id').value = '';
@@ -1278,11 +1398,32 @@ async function submitLabOrder() {
   btn.disabled = true;
   btn.textContent = 'Submitting...';
 
+  // Require a valid active encounter UUID
+  let encounterId = chartContext?.encounterId;
+  if (!encounterId && chartContext?.patient?.id === patientId) {
+    const enc = await ensureDoctorEncounter(patientId, chartContext.transfer);
+    if (enc) {
+      encounterId = enc.id;
+      chartContext.encounterId = enc.id;
+      chartContext.encounter = enc;
+    }
+  } else if (!encounterId && (!chartContext?.patient || chartContext.patient.id !== patientId)) {
+    const enc = await ensureDoctorEncounter(patientId);
+    if (enc) encounterId = enc.id;
+  }
+
+  if (!encounterId) {
+    showToast('Cannot submit lab order: A valid active clinical encounter is required.', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Submit Order';
+    return;
+  }
+
   try {
     const { data: user } = await supabase.auth.getUser();
     const { data: order, error } = await supabase.from('laboratory_orders').insert([{
       patient_id: patientId,
-      encounter_id: chartContext?.encounterId || null,
+      encounter_id: encounterId,
       ordering_doctor_id: user.user.id,
       clinical_indication: indication,
       priority: document.getElementById('lab-priority').value,
@@ -1421,6 +1562,10 @@ function renderRxCard(rx) {
 }
 
 function openRxModal(presetPatientId) {
+  if (presetPatientId && chartContext?.patient && !chartContext?.encounterId) {
+    showToast('Cannot prescribe: No active doctor-patient encounter established. Please reopen the patient chart.', 'error');
+    return;
+  }
   document.getElementById('rx-items-container').innerHTML = '';
   document.getElementById('rx-notes').value = '';
   document.getElementById('rx-patient-id').value = '';
@@ -1564,10 +1709,31 @@ async function submitPrescription() {
   btn.disabled = true;
   btn.textContent = 'Submitting...';
 
+  // Require a valid active encounter UUID
+  let encounterId = chartContext?.encounterId;
+  if (!encounterId && chartContext?.patient?.id === patientId) {
+    const enc = await ensureDoctorEncounter(patientId, chartContext.transfer);
+    if (enc) {
+      encounterId = enc.id;
+      chartContext.encounterId = enc.id;
+      chartContext.encounter = enc;
+    }
+  } else if (!encounterId && (!chartContext?.patient || chartContext.patient.id !== patientId)) {
+    const enc = await ensureDoctorEncounter(patientId);
+    if (enc) encounterId = enc.id;
+  }
+
+  if (!encounterId) {
+    showToast('Cannot submit prescription: A valid active clinical encounter is required. Please reopen the patient chart.', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Submit Prescription';
+    return;
+  }
+
   try {
     const rxData = {
       patient_id: patientId,
-      encounter_id: chartContext?.encounterId || null,
+      encounter_id: encounterId,
       notes: document.getElementById('rx-notes').value.trim() || null,
     };
 
@@ -1690,6 +1856,11 @@ function setupPatientSearchInModal(searchId, resultsId, hiddenId, chipId) {
 
 // ─── Vitals Modal ─────────────────────────────────────────────────────────────
 function openVitalsModal() {
+  if (!chartContext?.patient) { showToast('No patient selected', 'warning'); return; }
+  if (!chartContext?.encounterId) {
+    showToast('Cannot record vitals: No active clinical encounter found. Please reopen the patient chart.', 'error');
+    return;
+  }
   ['v-bp-sys','v-bp-dia','v-pulse','v-resp','v-temp','v-spo2','v-weight','v-height','v-bmi','v-glucose','v-pain','v-notes'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
@@ -1700,6 +1871,10 @@ function openVitalsModal() {
 async function saveVitals() {
   if (!chartContext?.patient) return;
   const { patient, encounterId } = chartContext;
+  if (!encounterId) {
+    showToast('Cannot record vitals: A valid active clinical encounter is required.', 'error');
+    return;
+  }
   const { data: user } = await supabase.auth.getUser();
   const bpSys = parseInt(document.getElementById('v-bp-sys').value) || null;
   const bpDia = parseInt(document.getElementById('v-bp-dia').value) || null;
@@ -1708,7 +1883,7 @@ async function saveVitals() {
 
   const payload = {
     patient_id: patient.id,
-    encounter_id: encounterId || null,
+    encounter_id: encounterId,
     recorded_by: user.user.id,
     bp_systolic: bpSys,
     bp_diastolic: bpDia,
